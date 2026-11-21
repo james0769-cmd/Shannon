@@ -1,0 +1,17 @@
+{
+  "name": "shannon",
+  "version": "0.1.0",
+  "description": "Shannon Desktop - Claude Desktop-style GUI for Pi Agent",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm --prefix desktop run dev",
+    "start": "npm --prefix desktop start",
+    "build": "npm --prefix desktop run build",
+    "typecheck": "npm --prefix desktop run typecheck",
+    "test": "npm --prefix desktop test",
+    "setup": "node scripts/setup-pi.mjs",
+    "pack:pi": "node scripts/setup-pi.mjs --pack-only",
+    "sync:pi": "node scripts/setup-pi.mjs --pull"
+  }
+}

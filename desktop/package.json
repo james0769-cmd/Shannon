@@ -1,0 +1,55 @@
+{
+  "name": "shannon-desktop",
+  "version": "0.1.0",
+  "description": "Shannon Desktop - Claude Desktop-style GUI for Pi Agent",
+  "private": true,
+  "type": "module",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "start": "electron .",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "ansi-to-html": "^0.7.2",
+    "highlight.js": "^11.11.1",
+    "lucide-react": "^0.511.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "zustand": "^5.0.5",
+    "@earendil-works/pi-coding-agent": "file:./../pi/.artifacts/pi-packages/tarballs/earendil-works-pi-coding-agent-1.6.0-00c14857d8a1.tgz",
+    "@earendil-works/pi-ai": "file:./../pi/.artifacts/pi-packages/tarballs/earendil-works-pi-ai-1.6.0-30c124562e2d.tgz",
+    "@earendil-works/pi-agent-core": "file:./../pi/.artifacts/pi-packages/tarballs/earendil-works-pi-agent-core-1.6.0-479cf91eee7a.tgz"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.7",
+    "@types/node": "^22.15.21",
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.5",
+    "@vitejs/plugin-react": "^4.5.0",
+    "electron": "^39.2.0",
+    "electron-vite": "^3.1.0",
+    "tailwindcss": "^4.1.7",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.1.4"
+  },
+  "overrides": {
+    "@earendil-works/chord": "file:./../pi/.artifacts/pi-packages/tarballs/earendil-works-chord-1.6.0-7aa530889e16.tgz",
+    "@earendil-works/pi-agent-core": "file:./../pi/.artifacts/pi-packages/tarballs/earendil-works-pi-agent-core-1.6.0-479cf91eee7a.tgz",
+    "@earendil-works/pi-ai": "file:./../pi/.artifacts/pi-packages/tarballs/earendil-works-pi-ai-1.6.0-30c124562e2d.tgz",
+    "@earendil-works/pi-codemode": "file:./../pi/.artifacts/pi-packages/tarballs/earendil-works-pi-codemode-1.6.0-4b121b43773c.tgz",
+    "@earendil-works/pi-coding-agent": "file:./../pi/.artifacts/pi-packages/tarballs/earendil-works-pi-coding-agent-1.6.0-00c14857d8a1.tgz",
+    "@earendil-works/pi-durable": "file:./../pi/.artifacts/pi-packages/tarballs/earendil-works-pi-durable-1.6.0-39fa88d539ba.tgz",
+    "@earendil-works/pi-env": "file:./../pi/.artifacts/pi-packages/tarballs/earendil-works-pi-env-1.6.0-2f8e77d02b95.tgz",
+    "@earendil-works/pi-mcp": "file:./../pi/.artifacts/pi-packages/tarballs/earendil-works-pi-mcp-1.6.0-48eb2a40b75d.tgz",
+    "@earendil-works/pi-schema": "file:./../pi/.artifacts/pi-packages/tarballs/earendil-works-pi-schema-1.6.0-b3649d316ead.tgz",
+    "@earendil-works/pi-telemetry": "file:./../pi/.artifacts/pi-packages/tarballs/earendil-works-pi-telemetry-1.6.0-53cd884f310a.tgz",
+    "@earendil-works/pi-tui": "file:./../pi/.artifacts/pi-packages/tarballs/earendil-works-pi-tui-1.6.0-a9411984bb0a.tgz"
+  }
+}

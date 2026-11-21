@@ -1,0 +1,19 @@
+# Dependencies & build artifacts
+node_modules/
+desktop/node_modules/
+desktop/out/
+desktop/dist/
+.artifacts/
+
+# TypeScript incremental caches
+*.tsbuildinfo
+
+# Logs & environment files
+*.log
+npm-debug.log*
+.env
+.env.*
+
+# macOS / OS files
+.DS_Store
+Thumbs.db
