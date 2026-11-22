@@ -38,14 +38,27 @@ interface ManagedSession {
   sessionFile?: string;
   cwd: string;
   session: AgentSession;
+  modelRuntime: ModelRuntime;
   resourceLoader: DefaultResourceLoader;
   unsubscribe: () => void;
   emittedEntryIds: Set<string>;
   isStreaming: boolean;
   isBashRunning: boolean;
+  pendingOperations: number;
+  diskVersion?: string;
   needsInput: boolean;
   lastError?: string;
   lastAccessedAt: number;
+}
+
+function getSessionFileVersion(path: string): string | undefined {
+  try {
+    const stat = statSync(path, { bigint: true });
+    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    return undefined;
+  }
 }
 
 const SKIP_DIRS = new Set([
@@ -283,6 +296,7 @@ export class SessionHub {
   private modelRuntimePromise?: Promise<ModelRuntime>;
   private readonly active = new Map<string, ManagedSession>();
   private readonly byPath = new Map<string, string>();
+  private readonly loadingByPath = new Map<string, Promise<ManagedSession>>();
 
   constructor(
     projectStore: ProjectStore,
@@ -436,8 +450,7 @@ export class SessionHub {
     return messages;
   }
 
-  private async buildSnapshot(managed: ManagedSession): Promise<ActiveSessionSnapshot> {
-    const modelRuntime = await this.getModelRuntime();
+  private buildSnapshot(managed: ManagedSession): ActiveSessionSnapshot {
     const projects = this.projectStore.listProjects();
     const resolvedCwd = resolve(managed.cwd);
     const project = projects.find((p) => resolve(p.path) === resolvedCwd);
@@ -466,7 +479,7 @@ export class SessionHub {
       isStreaming: managed.isStreaming || managed.session.isStreaming,
       isBashRunning: managed.isBashRunning,
       isCompacting: managed.session.isCompacting,
-      model: this.toAvailableModelOption(managed.session, modelRuntime),
+      model: this.toAvailableModelOption(managed.session, managed.modelRuntime),
       thinkingLevel: managed.session.thinkingLevel as ThinkingLevel,
       availableThinkingLevels: managed.session.getAvailableThinkingLevels() as ThinkingLevel[],
       messages,
@@ -476,6 +489,29 @@ export class SessionHub {
       queuedSteerCount: managed.session.getSteeringMessages().length,
       queuedFollowUpCount: managed.session.getFollowUpMessages().length,
     };
+  }
+
+  private emitStatus(managed: ManagedSession, error?: string): void {
+    const { session, sessionId, modelRuntime } = managed;
+    this.emitEvent({
+      type: 'session_status',
+      sessionId,
+      isStreaming: managed.isStreaming || session.isStreaming,
+      isBashRunning: managed.isBashRunning,
+      isCompacting: session.isCompacting,
+      model: this.toAvailableModelOption(session, modelRuntime),
+      thinkingLevel: session.thinkingLevel as ThinkingLevel,
+      availableThinkingLevels: session.getAvailableThinkingLevels() as ThinkingLevel[],
+      ...(error ? { error } : {}),
+    });
+  }
+
+  private emitSnapshot(managed: ManagedSession): void {
+    this.emitEvent({
+      type: 'session_reloaded',
+      sessionId: managed.sessionId,
+      snapshot: this.buildSnapshot(managed),
+    });
   }
 
   private attachSessionEvents(managed: ManagedSession): void {
@@ -507,21 +543,6 @@ export class SessionHub {
       flushTimer = setTimeout(flushAssistantDeltas, 25);
     };
 
-    const emitStatus = async (error?: string) => {
-      const modelRuntime = await this.getModelRuntime();
-      this.emitEvent({
-        type: 'session_status',
-        sessionId,
-        isStreaming: managed.isStreaming || managed.session.isStreaming,
-        isBashRunning: managed.isBashRunning,
-        isCompacting: managed.session.isCompacting,
-        model: this.toAvailableModelOption(managed.session, modelRuntime),
-        thinkingLevel: managed.session.thinkingLevel as ThinkingLevel,
-        availableThinkingLevels: managed.session.getAvailableThinkingLevels() as ThinkingLevel[],
-        ...(error ? { error } : {}),
-      });
-    };
-
     const emitNewBranchMessages = () => {
       const branch = managed.session.sessionManager.getBranch();
       for (const entry of branch) {
@@ -541,7 +562,7 @@ export class SessionHub {
     const unsubscribe = managed.session.subscribe((event: AgentSessionEvent) => {
       if (event.type === 'agent_start') {
         managed.isStreaming = true;
-        void emitStatus();
+        this.emitStatus(managed);
         return;
       }
 
@@ -654,18 +675,12 @@ export class SessionHub {
       }
 
       if (event.type === 'compaction_start') {
-        void emitStatus();
+        this.emitStatus(managed);
         return;
       }
 
       if (event.type === 'compaction_end') {
-        void this.buildSnapshot(managed).then((snapshot) => {
-          this.emitEvent({
-            type: 'session_reloaded',
-            sessionId,
-            snapshot,
-          });
-        });
+        this.emitSnapshot(managed);
         return;
       }
 
@@ -674,15 +689,9 @@ export class SessionHub {
         managed.isStreaming = false;
         queueMicrotask(() => {
           emitNewBranchMessages();
-          void emitStatus();
-          void this.buildSnapshot(managed).then((snapshot) => {
-            this.emitEvent({
-              type: 'session_reloaded',
-              sessionId,
-              snapshot,
-            });
-            this.emitEvent({ type: 'sessions_list_changed' });
-          });
+          this.emitStatus(managed);
+          this.emitSnapshot(managed);
+          this.emitEvent({ type: 'sessions_list_changed' });
         });
       }
     });
@@ -697,10 +706,12 @@ export class SessionHub {
     sessionManager: SessionManager,
     cwd: string,
     projectDefault?: { provider: string; modelId: string; thinkingLevel?: ThinkingLevel },
+    diskVersion?: string,
+    replacing?: ManagedSession,
   ): Promise<ManagedSession> {
     const existingId = sessionManager.getSessionId();
     const already = this.active.get(existingId);
-    if (already) {
+    if (already && already !== replacing) {
       already.lastAccessedAt = Date.now();
       return already;
     }
@@ -753,11 +764,14 @@ export class SessionHub {
       sessionFile,
       cwd,
       session,
+      modelRuntime,
       resourceLoader,
       unsubscribe: () => {},
       emittedEntryIds: new Set(session.sessionManager.getBranch().map((e) => e.id)),
       isStreaming: false,
       isBashRunning: false,
+      pendingOperations: 0,
+      diskVersion,
       needsInput: false,
       lastAccessedAt: Date.now(),
     };
@@ -778,6 +792,91 @@ export class SessionHub {
     }
     managed.lastAccessedAt = Date.now();
     return managed;
+  }
+
+  private loadSession(sessionPath: string): Promise<ManagedSession> {
+    const path = resolve(sessionPath);
+    const pending = this.loadingByPath.get(path);
+    if (pending) return pending;
+    const loading = this.loadSessionFromDisk(path).finally(() => {
+      this.loadingByPath.delete(path);
+    });
+    this.loadingByPath.set(path, loading);
+    return loading;
+  }
+
+  private async loadSessionFromDisk(path: string): Promise<ManagedSession> {
+    const activeId = this.byPath.get(path);
+    const existing = activeId ? this.active.get(activeId) : undefined;
+    const diskVersion = getSessionFileVersion(path);
+    if (!diskVersion) {
+      // Pi gives a fresh session a path before its first conversation entry flushes it.
+      const hasConversation = existing?.session.sessionManager.getEntries().some(
+        (entry) => entry.type === 'message' && (entry.message.role === 'user' || entry.message.role === 'assistant'),
+      );
+      if (existing && !existing.diskVersion && !hasConversation) {
+        return existing;
+      }
+      throw new Error('The session file no longer exists.');
+    }
+    if (existing?.diskVersion === diskVersion) return existing;
+
+    const sessionManager = SessionManager.open(path);
+    if (existing) {
+      const current = existing.session.sessionManager;
+      // The in-memory leaf can intentionally differ after tree navigation. Compare the log
+      // entries, not the leaf, so changes made by this session retain the selected branch.
+      const diskEntries = sessionManager.getEntries();
+      const sameLog = sessionManager.getSessionId() === existing.sessionId &&
+        current.getEntryCount() === diskEntries.length &&
+        current.getEntries().every((entry, index) => entry.id === diskEntries[index].id);
+      if (sameLog) {
+        existing.diskVersion = diskVersion;
+        return existing;
+      }
+      if (
+        existing.pendingOperations > 0 ||
+        existing.isStreaming ||
+        existing.isBashRunning ||
+        existing.session.isStreaming ||
+        existing.session.isCompacting
+      ) {
+        throw new Error('The session changed on disk while Shannon was using it. Wait for it to finish, then reopen the chat.');
+      }
+      existing.unsubscribe();
+      existing.session.dispose();
+    }
+
+    const sessionCwd = sessionManager.getCwd();
+    const cwd = sessionCwd && existsSync(sessionCwd) ? sessionCwd : homedir();
+    try {
+      const managed = await this.activateSessionManager(sessionManager, cwd, undefined, diskVersion, existing);
+      if (existing?.sessionId === managed.sessionId) this.emitSnapshot(managed);
+      return managed;
+    } finally {
+      // Keep the old ID addressable while related IPC requests await the same reload.
+      if (existing && this.active.get(existing.sessionId) === existing) {
+        this.active.delete(existing.sessionId);
+        if (this.byPath.get(path) === existing.sessionId) this.byPath.delete(path);
+      }
+    }
+  }
+
+  private async withSession<T>(
+    sessionId: string,
+    operation: (managed: ManagedSession) => T | Promise<T>,
+  ): Promise<T> {
+    const existing = this.getManagedOrThrow(sessionId);
+    const managed = existing.sessionFile ? await this.loadSession(existing.sessionFile) : existing;
+    if (managed.sessionId !== sessionId || this.active.get(sessionId) !== managed) {
+      throw new Error('The session file has been replaced. Reopen the chat to continue.');
+    }
+    managed.pendingOperations++;
+    try {
+      return await operation(managed);
+    } finally {
+      managed.pendingOperations--;
+    }
   }
 
   async listSessions(): Promise<SessionSummary[]> {
@@ -846,24 +945,12 @@ export class SessionHub {
   }
 
   async openSession(sessionPath: string): Promise<ActiveSessionSnapshot> {
-    const resolvedPath = resolve(sessionPath);
-    const activeId = this.byPath.get(resolvedPath);
-    if (activeId) {
-      const existing = this.active.get(activeId);
-      if (existing) {
-        existing.lastAccessedAt = Date.now();
-        return this.buildSnapshot(existing);
-      }
-    }
-
-    const sm = SessionManager.open(resolvedPath);
-    const cwd = sm.getCwd() && existsSync(sm.getCwd()) ? sm.getCwd() : homedir();
-    const managed = await this.activateSessionManager(sm, cwd);
-    return this.buildSnapshot(managed);
+    return this.buildSnapshot(await this.loadSession(sessionPath));
   }
 
   async deleteSession(sessionPath: string): Promise<void> {
     const resolvedPath = resolve(sessionPath);
+    await this.loadingByPath.get(resolvedPath);
     const activeId = this.byPath.get(resolvedPath);
     if (activeId) {
       const managed = this.active.get(activeId);
@@ -894,15 +981,14 @@ export class SessionHub {
   }
 
   async setSessionName(sessionId: string, name: string): Promise<void> {
-    const managed = this.getManagedOrThrow(sessionId);
-    managed.session.setSessionName(name.trim());
-    this.emitEvent({ type: 'sessions_list_changed' });
+    await this.withSession(sessionId, ({ session }) => {
+      session.setSessionName(name.trim());
+      this.emitEvent({ type: 'sessions_list_changed' });
+    });
   }
 
   async exportSessionHtml(sessionId: string): Promise<{ path: string }> {
-    const managed = this.getManagedOrThrow(sessionId);
-    const outPath = await managed.session.exportToHtml();
-    return { path: outPath };
+    return this.withSession(sessionId, async ({ session }) => ({ path: await session.exportToHtml() }));
   }
 
   async prompt(
@@ -913,95 +999,65 @@ export class SessionHub {
       streamingBehavior?: 'steer' | 'followUp';
     },
   ): Promise<{ disposition: 'started' | 'queued' | 'handled' }> {
-    const managed = this.getManagedOrThrow(sessionId);
     const images = options?.images?.map((img) => ({
       type: 'image' as const,
       data: img.data,
       mimeType: img.mimeType,
     }));
 
-    if (managed.session.isStreaming) {
-      const behavior = options?.streamingBehavior ?? 'steer';
-      if (behavior === 'followUp') {
-        const res = await managed.session.followUp(message, images);
-        return { disposition: res };
-      }
-      const res = await managed.session.steer(message, images);
-      return { disposition: res };
-    }
-
-    managed.isStreaming = true;
-    managed.needsInput = false;
-    managed.lastError = undefined;
-    this.emitEvent({
-      type: 'session_status',
-      sessionId,
-      isStreaming: true,
-      isBashRunning: managed.isBashRunning,
-      isCompacting: managed.session.isCompacting,
+    // Resolve IPC when Pi dispatches the input. Keep the operation tracked until the SDK settles.
+    return new Promise((resolve, reject) => {
+      let dispatched = false;
+      void this.withSession(sessionId, async (managed) => {
+        managed.needsInput = false;
+        managed.lastError = undefined;
+        try {
+          await managed.session.prompt(message, {
+            images,
+            streamingBehavior: options?.streamingBehavior ?? 'steer',
+            preflightResult: (disposition) => {
+              dispatched = true;
+              resolve({ disposition });
+            },
+          });
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          managed.needsInput = true;
+          managed.lastError = errMsg;
+          this.emitStatus(managed, errMsg);
+          this.emitEvent({ type: 'sessions_list_changed' });
+          if (!dispatched) throw error;
+          this.emitEvent({ type: 'ui_notification', sessionId, level: 'error', message: errMsg });
+        }
+      }).then(() => resolve({ disposition: 'handled' }), reject);
     });
-
-    // Run prompt asynchronously so IPC returns immediately while events stream
-    void managed.session
-      .prompt(message, {
-        ...(images && images.length > 0 ? { images } : {}),
-      })
-      .catch((error) => {
-        const errMsg = error instanceof Error ? error.message : String(error);
-        managed.isStreaming = false;
-        managed.needsInput = true;
-        managed.lastError = errMsg;
-        this.emitEvent({
-          type: 'ui_notification',
-          sessionId,
-          level: 'error',
-          message: errMsg,
-        });
-        this.emitEvent({
-          type: 'session_status',
-          sessionId,
-          isStreaming: false,
-          isBashRunning: managed.isBashRunning,
-          isCompacting: managed.session.isCompacting,
-          error: errMsg,
-        });
-        this.emitEvent({ type: 'sessions_list_changed' });
-      });
-
-    return { disposition: 'started' };
   }
 
   async abort(sessionId: string): Promise<void> {
     const managed = this.getManagedOrThrow(sessionId);
     await managed.session.abort();
-    managed.isStreaming = false;
   }
 
   async executeBash(
     sessionId: string,
     command: string,
     excludeFromContext: boolean,
-  ): Promise<{
-    runId: string;
-    output: string;
-    exitCode?: number;
-    cancelled: boolean;
-    truncated: boolean;
-    fullOutputPath?: string;
-  }> {
-    const managed = this.getManagedOrThrow(sessionId);
+  ) {
+    return this.withSession(sessionId, (managed) => this.runBash(managed, command, excludeFromContext));
+  }
+
+  private async runBash(managed: ManagedSession, command: string, excludeFromContext: boolean) {
+    if (managed.isBashRunning || managed.session.isBashRunning) {
+      throw new Error('A Bash command is already running in this chat.');
+    }
+    const { sessionId } = managed;
     const runId = randomUUID();
     managed.isBashRunning = true;
     managed.needsInput = false;
     managed.lastError = undefined;
 
-    this.emitEvent({
-      type: 'session_status',
-      sessionId,
-      isStreaming: managed.isStreaming,
-      isBashRunning: true,
-      isCompacting: managed.session.isCompacting,
-    });
+    this.emitStatus(managed);
+    this.emitEvent({ type: 'bash_update', sessionId, runId, command, excludeFromContext });
 
     let pendingChunk = '';
     let flushTimer: ReturnType<typeof setTimeout> | undefined;
@@ -1050,12 +1106,7 @@ export class SessionHub {
         fullOutputPath: result.fullOutputPath,
       });
 
-      const snapshot = await this.buildSnapshot(managed);
-      this.emitEvent({
-        type: 'session_reloaded',
-        sessionId,
-        snapshot,
-      });
+      this.emitSnapshot(managed);
       this.emitEvent({ type: 'sessions_list_changed' });
 
       return {
@@ -1069,14 +1120,7 @@ export class SessionHub {
     } catch (error) {
       flushChunk();
       managed.isBashRunning = false;
-      this.emitEvent({
-        type: 'session_status',
-        sessionId,
-        isStreaming: managed.isStreaming,
-        isBashRunning: false,
-        isCompacting: managed.session.isCompacting,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      this.emitStatus(managed, error instanceof Error ? error.message : String(error));
       throw error;
     }
   }
@@ -1084,24 +1128,22 @@ export class SessionHub {
   async abortBash(sessionId: string): Promise<void> {
     const managed = this.getManagedOrThrow(sessionId);
     managed.session.abortBash();
-    managed.isBashRunning = false;
   }
 
   async setModel(sessionId: string, provider: string, modelId: string): Promise<ActiveSessionSnapshot> {
-    const managed = this.getManagedOrThrow(sessionId);
-    const modelRuntime = await this.getModelRuntime();
-    const model = modelRuntime.getModel(provider, modelId);
-    if (!model) {
-      throw new Error(`Model not found: ${provider}/${modelId}`);
-    }
-    await managed.session.setModel(model);
-    return this.buildSnapshot(managed);
+    return this.withSession(sessionId, async (managed) => {
+      const model = managed.modelRuntime.getModel(provider, modelId);
+      if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
+      await managed.session.setModel(model);
+      return this.buildSnapshot(managed);
+    });
   }
 
   async setThinkingLevel(sessionId: string, level: ThinkingLevel): Promise<ActiveSessionSnapshot> {
-    const managed = this.getManagedOrThrow(sessionId);
-    managed.session.setThinkingLevel(level);
-    return this.buildSnapshot(managed);
+    return this.withSession(sessionId, (managed) => {
+      managed.session.setThinkingLevel(level);
+      return this.buildSnapshot(managed);
+    });
   }
 
   async getContextBreakdown(sessionId: string): Promise<ContextBreakdown> {
@@ -1110,16 +1152,20 @@ export class SessionHub {
   }
 
   async compactSession(sessionId: string, customInstructions?: string): Promise<ActiveSessionSnapshot> {
-    const managed = this.getManagedOrThrow(sessionId);
-    await managed.session.compact(customInstructions?.trim() || undefined);
-    this.emitEvent({ type: 'sessions_list_changed' });
-    return this.buildSnapshot(managed);
+    return this.withSession(sessionId, async (managed) => {
+      await managed.session.compact(customInstructions?.trim() || undefined);
+      this.emitEvent({ type: 'sessions_list_changed' });
+      return this.buildSnapshot(managed);
+    });
   }
 
   async reloadSession(sessionId: string): Promise<ActiveSessionSnapshot> {
-    const managed = this.getManagedOrThrow(sessionId);
-    await managed.session.reload();
-    return this.buildSnapshot(managed);
+    const previous = this.active.get(sessionId);
+    return this.withSession(sessionId, async (managed) => {
+      // A replacement has already loaded and bound its extensions.
+      if (managed === previous) await managed.session.reload();
+      return this.buildSnapshot(managed);
+    });
   }
 
   async getSessionTree(sessionId: string): Promise<SessionTreeItem[]> {
@@ -1132,10 +1178,11 @@ export class SessionHub {
     targetId: string,
     summarize = false,
   ): Promise<ActiveSessionSnapshot> {
-    const managed = this.getManagedOrThrow(sessionId);
-    await managed.session.navigateTree(targetId, { summarize });
-    this.emitEvent({ type: 'sessions_list_changed' });
-    return this.buildSnapshot(managed);
+    return this.withSession(sessionId, async (managed) => {
+      await managed.session.navigateTree(targetId, { summarize });
+      this.emitEvent({ type: 'sessions_list_changed' });
+      return this.buildSnapshot(managed);
+    });
   }
 
   async forkSession(sessionId: string, entryId: string): Promise<ActiveSessionSnapshot> {
@@ -1156,7 +1203,7 @@ export class SessionHub {
     const forkedSnapshot = await this.openSession(newSessionPath);
     const forkedManaged = this.active.get(forkedSnapshot.sessionId);
     if (forkedManaged && !forkedManaged.session.sessionName) {
-      forkedManaged.session.setSessionName(`Fork of ${parentName}`);
+      await this.setSessionName(forkedManaged.sessionId, `Fork of ${parentName}`);
     }
     this.emitEvent({ type: 'sessions_list_changed' });
     return forkedManaged ? this.buildSnapshot(forkedManaged) : forkedSnapshot;

@@ -201,6 +201,38 @@ function pushSessionHistory(
   };
 }
 
+let sessionNavigation = 0;
+let creatingDraft: { navigation: number; promise: Promise<ActiveSessionSnapshot> } | undefined;
+
+function updateSessionSnapshot(state: AppState, navigation: number, snapshot: ActiveSessionSnapshot) {
+  return navigation === sessionNavigation && state.activeSession?.sessionId === snapshot.sessionId
+    ? { activeSession: snapshot }
+    : state;
+}
+
+async function getSessionForSubmission(
+  get: () => AppState,
+  set: (update: (state: AppState) => Partial<AppState>) => void,
+): Promise<ActiveSessionSnapshot | null> {
+  const active = get().activeSession;
+  if (active) return active;
+
+  const navigation = sessionNavigation;
+  if (creatingDraft?.navigation !== navigation) {
+    const promise = window.shannon.createSession().finally(() => {
+      if (creatingDraft?.promise === promise) creatingDraft = undefined;
+    });
+    creatingDraft = { navigation, promise };
+  }
+  const snapshot = await creatingDraft.promise;
+  if (navigation !== sessionNavigation) return null;
+  set((s) => ({
+    activeSession: snapshot,
+    ...pushSessionHistory(s.sessionHistory, s.sessionHistoryIndex, snapshot.sessionFile),
+  }));
+  return snapshot;
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   initialized: false,
   theme: 'system',
@@ -236,6 +268,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   toasts: [],
 
   init: async () => {
+    const navigation = sessionNavigation;
     const [config, projects, sessions, providers, availableModels, existingTerminals] =
       await Promise.all([
         window.shannon.getAppConfig(),
@@ -260,13 +293,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
 
     const initialSession = sessions.find((s) => !s.archived) ?? sessions[0];
-    if (!get().activeSession && initialSession) {
+    if (navigation === sessionNavigation && !creatingDraft && !get().activeSession && initialSession) {
       try {
         const snapshot = await window.shannon.openSession(initialSession.path);
-        set({
-          activeSession: snapshot,
-          ...pushSessionHistory([], -1, snapshot.sessionFile),
-        });
+        if (navigation === sessionNavigation && !creatingDraft && !get().activeSession) {
+          set({
+            activeSession: snapshot,
+            ...pushSessionHistory([], -1, snapshot.sessionFile),
+          });
+        }
       } catch {
         // Ignore stale session errors on startup
       }
@@ -442,18 +477,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   addProject: async (dirPath) => {
+    const navigation = sessionNavigation;
     const project = await window.shannon.addProject(dirPath);
     if (!project) return null;
     await get().refreshProjectsAndSessions();
-    const snapshot = await window.shannon.createSession({
-      cwd: project.path,
-      projectId: project.id,
-    });
-    set((s) => ({
-      activeSession: snapshot,
-      ...pushSessionHistory(s.sessionHistory, s.sessionHistoryIndex, snapshot.sessionFile),
-    }));
-    await get().refreshProjectsAndSessions();
+    if (navigation === sessionNavigation) {
+      await get().createNewSession({ cwd: project.path, projectId: project.id });
+    }
     return project;
   },
 
@@ -470,28 +500,39 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   createNewSession: async (options) => {
+    const navigation = ++sessionNavigation;
     const snapshot = await window.shannon.createSession(options);
-    set((s) => ({
-      activeSession: snapshot,
-      highlightedEntryId: null,
-      ...pushSessionHistory(s.sessionHistory, s.sessionHistoryIndex, snapshot.sessionFile),
-    }));
+    if (navigation === sessionNavigation) {
+      set((s) => ({
+        activeSession: snapshot,
+        highlightedEntryId: null,
+        ...pushSessionHistory(s.sessionHistory, s.sessionHistoryIndex, snapshot.sessionFile),
+      }));
+    }
     await get().refreshProjectsAndSessions();
   },
 
   openSessionByPath: async (sessionPath, pushHistory = true) => {
-    const snapshot = await window.shannon.openSession(sessionPath);
-    set((s) => ({
-      activeSession: snapshot,
-      highlightedEntryId: null,
-      ...(pushHistory
-        ? pushSessionHistory(s.sessionHistory, s.sessionHistoryIndex, snapshot.sessionFile ?? sessionPath)
-        : {}),
-    }));
+    const navigation = ++sessionNavigation;
+    try {
+      const snapshot = await window.shannon.openSession(sessionPath);
+      if (navigation !== sessionNavigation) return;
+      set((s) => ({
+        activeSession: snapshot,
+        highlightedEntryId: null,
+        ...(pushHistory
+          ? pushSessionHistory(s.sessionHistory, s.sessionHistoryIndex, snapshot.sessionFile ?? sessionPath)
+          : {}),
+      }));
+    } catch (error) {
+      if (navigation === sessionNavigation) {
+        get().pushToast('error', error instanceof Error ? error.message : String(error));
+      }
+    }
   },
 
   deleteSessionByPath: async (sessionPath) => {
-    const active = get().activeSession;
+    const navigation = sessionNavigation;
     await window.shannon.deleteSession(sessionPath);
     set((s) => {
       const nextHistory = s.sessionHistory.filter((p) => p !== sessionPath);
@@ -501,11 +542,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     });
     await get().refreshProjectsAndSessions();
-    if (active?.sessionFile === sessionPath) {
+    if (navigation === sessionNavigation && get().activeSession?.sessionFile === sessionPath) {
       const remaining = get().sessions.filter((s) => !s.archived);
       if (remaining.length > 0) {
-        const nextSnap = await window.shannon.openSession(remaining[0].path);
-        set({ activeSession: nextSnap });
+        await get().openSessionByPath(remaining[0].path);
       } else {
         set({ activeSession: null });
       }
@@ -513,14 +553,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   archiveSessionByPath: async (sessionPath) => {
-    const active = get().activeSession;
+    const navigation = sessionNavigation;
     await window.shannon.archiveSession(sessionPath);
     await get().refreshProjectsAndSessions();
-    if (active?.sessionFile === sessionPath) {
+    if (navigation === sessionNavigation && get().activeSession?.sessionFile === sessionPath) {
       const remaining = get().sessions.filter((s) => !s.archived);
       if (remaining.length > 0) {
-        const nextSnap = await window.shannon.openSession(remaining[0].path);
-        set({ activeSession: nextSnap });
+        await get().openSessionByPath(remaining[0].path);
       }
     }
     get().pushToast('info', 'Moved chat to Archive');
@@ -552,31 +591,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   sendPrompt: async (text, options) => {
-    let active = get().activeSession;
-    if (!active) {
-      active = await window.shannon.createSession();
-      set((s) => ({
-        activeSession: active,
-        ...pushSessionHistory(s.sessionHistory, s.sessionHistoryIndex, active?.sessionFile),
-      }));
-      await get().refreshProjectsAndSessions();
-    }
-
-    const sessionId = active.sessionId;
-    set((s) => ({
-      needsInputBySession: { ...s.needsInputBySession, [sessionId]: false },
-      runStartedAtBySession: {
-        ...s.runStartedAtBySession,
-        [sessionId]: s.runStartedAtBySession[sessionId] ?? Date.now(),
-      },
-    }));
-
+    let sessionId: string | undefined;
     try {
+      const active = await getSessionForSubmission(get, set);
+      if (!active) return;
+      sessionId = active.sessionId;
+      set((s) => ({
+        needsInputBySession: { ...s.needsInputBySession, [active.sessionId]: false },
+      }));
       await window.shannon.prompt(sessionId, text, options);
     } catch (error) {
-      set((s) => ({
-        needsInputBySession: { ...s.needsInputBySession, [sessionId]: true },
-      }));
+      if (sessionId) {
+        const failedSessionId = sessionId;
+        set((s) => ({
+          needsInputBySession: { ...s.needsInputBySession, [failedSessionId]: true },
+        }));
+      }
       get().pushToast('error', error instanceof Error ? error.message : String(error));
     }
   },
@@ -588,49 +618,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   runBashCommand: async (command, excludeFromContext) => {
-    let active = get().activeSession;
-    if (!active) {
-      active = await window.shannon.createSession();
-      set((s) => ({
-        activeSession: active,
-        ...pushSessionHistory(s.sessionHistory, s.sessionHistoryIndex, active?.sessionFile),
-      }));
-      await get().refreshProjectsAndSessions();
-    }
-
-    const sessionId = active.sessionId;
-    set((s) => ({
-      needsInputBySession: { ...s.needsInputBySession, [sessionId]: false },
-      runStartedAtBySession: {
-        ...s.runStartedAtBySession,
-        [sessionId]: s.runStartedAtBySession[sessionId] ?? Date.now(),
-      },
-      liveBashBySession: {
-        ...s.liveBashBySession,
-        [sessionId]: {
-          runId: 'pending',
-          command,
-          excludeFromContext,
-          output: '',
-          done: false,
-        },
-      },
-    }));
-
     try {
-      await window.shannon.executeBash(sessionId, command, excludeFromContext);
+      const active = await getSessionForSubmission(get, set);
+      if (!active) return;
+      await window.shannon.executeBash(active.sessionId, command, excludeFromContext);
     } catch (error) {
-      set((s) => {
-        const next = { ...s.liveBashBySession };
-        delete next[sessionId];
-        const nextRuns = { ...s.runStartedAtBySession };
-        delete nextRuns[sessionId];
-        return {
-          liveBashBySession: next,
-          runStartedAtBySession: nextRuns,
-          needsInputBySession: { ...s.needsInputBySession, [sessionId]: true },
-        };
-      });
       get().pushToast('error', error instanceof Error ? error.message : String(error));
     }
   },
@@ -644,23 +636,26 @@ export const useAppStore = create<AppState>((set, get) => ({
   changeModel: async (provider, modelId) => {
     const active = get().activeSession;
     if (!active) return;
+    const navigation = sessionNavigation;
     const snapshot = await window.shannon.setModel(active.sessionId, provider, modelId);
-    set({ activeSession: snapshot });
+    set((s) => updateSessionSnapshot(s, navigation, snapshot));
   },
 
   changeThinkingLevel: async (level) => {
     const active = get().activeSession;
     if (!active) return;
+    const navigation = sessionNavigation;
     const snapshot = await window.shannon.setThinkingLevel(active.sessionId, level);
-    set({ activeSession: snapshot });
+    set((s) => updateSessionSnapshot(s, navigation, snapshot));
   },
 
   compactActiveSession: async (customInstructions) => {
     const active = get().activeSession;
     if (!active) return;
+    const navigation = sessionNavigation;
     try {
       const snapshot = await window.shannon.compactSession(active.sessionId, customInstructions);
-      set({ activeSession: snapshot });
+      set((s) => updateSessionSnapshot(s, navigation, snapshot));
       get().pushToast('info', 'Context compacted cleanly');
     } catch (error) {
       get().pushToast('error', error instanceof Error ? error.message : String(error));
@@ -670,9 +665,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   reloadActiveSession: async () => {
     const active = get().activeSession;
     if (!active) return;
+    const navigation = sessionNavigation;
     try {
       const snapshot = await window.shannon.reloadSession(active.sessionId);
-      set({ activeSession: snapshot });
+      set((s) => updateSessionSnapshot(s, navigation, snapshot));
       get().pushToast('info', 'Reloaded extensions, skills, prompts & context files');
     } catch (error) {
       get().pushToast('error', error instanceof Error ? error.message : String(error));
@@ -682,9 +678,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   navigateSessionTree: async (targetId, summarize = false) => {
     const active = get().activeSession;
     if (!active) return;
+    const navigation = sessionNavigation;
     try {
       const snapshot = await window.shannon.navigateTree(active.sessionId, targetId, summarize);
-      set({ activeSession: snapshot });
+      set((s) => updateSessionSnapshot(s, navigation, snapshot));
     } catch (error) {
       get().pushToast('error', error instanceof Error ? error.message : String(error));
     }
@@ -693,12 +690,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   forkFromEntry: async (entryId) => {
     const active = get().activeSession;
     if (!active) return;
+    const navigation = ++sessionNavigation;
     try {
       const snapshot = await window.shannon.forkSession(active.sessionId, entryId);
-      set((s) => ({
-        activeSession: snapshot,
-        ...pushSessionHistory(s.sessionHistory, s.sessionHistoryIndex, snapshot.sessionFile),
-      }));
+      if (navigation === sessionNavigation) {
+        set((s) => ({
+          activeSession: snapshot,
+          highlightedEntryId: null,
+          ...pushSessionHistory(s.sessionHistory, s.sessionHistoryIndex, snapshot.sessionFile),
+        }));
+      }
       await get().refreshProjectsAndSessions();
       get().pushToast('info', 'Forked into new session');
     } catch (error) {
@@ -813,7 +814,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     if (event.type === 'bash_update') {
       set((s) => {
-        const prev = s.liveBashBySession[event.sessionId];
+        const previousRun = s.liveBashBySession[event.sessionId];
+        const prev = previousRun?.runId === event.runId ? previousRun : undefined;
         const nextBuffer: LiveBashBuffer = {
           runId: event.runId,
           command: event.command,
@@ -830,6 +832,9 @@ export const useAppStore = create<AppState>((set, get) => ({
             ...s.liveBashBySession,
             [event.sessionId]: nextBuffer,
           },
+          needsInputBySession: prev
+            ? s.needsInputBySession
+            : { ...s.needsInputBySession, [event.sessionId]: false },
         };
       });
       return;
@@ -854,16 +859,25 @@ export const useAppStore = create<AppState>((set, get) => ({
           ? { ...s.needsInputBySession, [event.sessionId]: true }
           : s.needsInputBySession;
 
+        let nextBash = s.liveBashBySession;
+        const liveBash = nextBash[event.sessionId];
+        if (event.error && !event.isBashRunning && liveBash && !liveBash.done) {
+          nextBash = { ...nextBash };
+          delete nextBash[event.sessionId];
+        }
+
         const active = s.activeSession;
         if (!active || active.sessionId !== event.sessionId) {
           return {
             streamingBySession: nextStreaming,
+            liveBashBySession: nextBash,
             runStartedAtBySession: nextRuns,
             needsInputBySession: nextNeedsInput,
           };
         }
         return {
           streamingBySession: nextStreaming,
+          liveBashBySession: nextBash,
           runStartedAtBySession: nextRuns,
           needsInputBySession: nextNeedsInput,
           activeSession: {
@@ -898,11 +912,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (event.type === 'session_reloaded') {
       set((s) => {
         const nextBash = { ...s.liveBashBySession };
-        delete nextBash[event.sessionId];
         const nextStreaming = { ...s.streamingBySession };
-        delete nextStreaming[event.sessionId];
         const nextTools = { ...s.liveToolsBySession };
-        delete nextTools[event.sessionId];
+        if (!event.snapshot.isBashRunning) delete nextBash[event.sessionId];
+        if (!event.snapshot.isStreaming) {
+          delete nextStreaming[event.sessionId];
+          delete nextTools[event.sessionId];
+        }
         const nextRuns = { ...s.runStartedAtBySession };
         if (!event.snapshot.isStreaming && !event.snapshot.isBashRunning) {
           delete nextRuns[event.sessionId];

@@ -2,16 +2,25 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createAssistantMessageEventStream, type AssistantMessage } from '@earendil-works/pi-ai';
-import { afterEach, describe, expect, it } from 'vitest';
+import { AgentSession, SessionManager } from '@earendil-works/pi-coding-agent';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StreamEvent } from '../src/shared/types.js';
 import { ProjectStore } from '../src/main/pi/project-store.js';
 import { SessionHub } from '../src/main/pi/session-hub.js';
+
+function deferred<T>() {
+  let resolve!: (result: T) => void;
+  const promise = new Promise<T>((complete) => { resolve = complete; });
+  return { promise, resolve };
+}
 
 describe('SessionHub event commitment ordering', () => {
   const tempDirs: string[] = [];
   const tempSessionFiles: string[] = [];
 
   afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
     for (const f of tempSessionFiles.splice(0)) {
       rmSync(f, { force: true });
     }
@@ -167,6 +176,127 @@ describe('SessionHub event commitment ordering', () => {
       } else {
         process.env.PI_CODING_AGENT_DIR = prevAgentDirEnv;
       }
+    }
+  });
+
+  function makeHub() {
+    const root = mkdtempSync(join(tmpdir(), 'shannon-hub-'));
+    tempDirs.push(root);
+    const agentDir = join(root, 'agent');
+    const cwd = join(root, 'project');
+    mkdirSync(agentDir);
+    mkdirSync(cwd);
+    vi.stubEnv('PI_CODING_AGENT_DIR', agentDir);
+    const events: StreamEvent[] = [];
+    const hub = new SessionHub(new ProjectStore(join(root, 'store')), (e) => events.push(e), agentDir);
+    return { agentDir, cwd, events, hub };
+  }
+
+  it('keeps a handled Pi extension command out of the streaming state', async () => {
+    const { agentDir, cwd, events, hub } = makeHub();
+    const extensionsDir = join(agentDir, 'extensions');
+    mkdirSync(extensionsDir);
+    writeFileSync(join(extensionsDir, 'test-noop.ts'), `
+      export default function (pi) {
+        pi.registerCommand('test-noop', { description: 'Test command', handler: async () => {} });
+      }
+    `);
+
+    try {
+      const session = await hub.createSession({ cwd });
+      await expect(hub.prompt(session.sessionId, '/test-noop')).resolves.toEqual({ disposition: 'handled' });
+      const snapshot = await hub.openSession(session.sessionFile!);
+      expect(snapshot.isStreaming).toBe(false);
+      expect(events.some((event) => event.type === 'session_status' && event.isStreaming)).toBe(false);
+    } finally {
+      await hub.disposeAll();
+    }
+  });
+
+  it('loads CLI appends on reopen, reload and before a desktop write', async () => {
+    const { cwd, hub } = makeHub();
+    const sessionManager = SessionManager.create(cwd);
+    const appendUser = (manager: SessionManager, content: string) =>
+      manager.appendMessage({ role: 'user', content, timestamp: Date.now() });
+    appendUser(sessionManager, 'Original prompt');
+    const path = sessionManager.getSessionFile()!;
+
+    try {
+      const initial = await hub.openSession(path);
+      appendUser(SessionManager.open(path), 'CLI prompt before reopen');
+      const [reopened, alsoReopened] = await Promise.all([hub.openSession(path), hub.openSession(path)]);
+      expect(reopened.sessionId).toBe(initial.sessionId);
+      expect(alsoReopened.messages).toEqual(reopened.messages);
+      expect(reopened.messages.map((m) => m.text)).toEqual(['Original prompt', 'CLI prompt before reopen']);
+
+      appendUser(SessionManager.open(path), 'CLI prompt before reload');
+      const reloaded = await hub.reloadSession(initial.sessionId);
+      expect(reloaded.messages.at(-1)?.text).toBe('CLI prompt before reload');
+
+      const externalEntry = appendUser(SessionManager.open(path), 'CLI prompt before write');
+      await hub.setSessionName(initial.sessionId, 'Renamed on desktop');
+      const saved = SessionManager.open(path);
+      expect(saved.getLeafEntry()).toMatchObject({ type: 'session_info', parentId: externalEntry });
+      expect(saved.getBranch().map((entry) => entry.id)).toContain(externalEntry);
+    } finally {
+      await hub.disposeAll();
+    }
+  });
+
+  it('keeps a manually selected branch when only desktop entries changed on disk', async () => {
+    const { cwd, hub } = makeHub();
+    const manager = SessionManager.create(cwd);
+    manager.appendMessage({ role: 'user', content: 'Original prompt', timestamp: Date.now() });
+    const target = manager.appendSessionInfo('First title');
+    const path = manager.getSessionFile()!;
+
+    try {
+      const initial = await hub.openSession(path);
+      await hub.setSessionName(initial.sessionId, 'Newer title');
+      await hub.navigateTree(initial.sessionId, target);
+      await hub.setSessionName(initial.sessionId, 'Branch title');
+      expect(SessionManager.open(path).getLeafEntry()).toMatchObject({
+        type: 'session_info',
+        name: 'Branch title',
+        parentId: target,
+      });
+    } finally {
+      await hub.disposeAll();
+    }
+  });
+
+  it('keeps the current Bash run after rejecting another command, even during cancellation', async () => {
+    const { cwd, events, hub } = makeHub();
+    type BashResult = Awaited<ReturnType<AgentSession['executeBash']>>;
+    const cancelled: BashResult = { output: '', exitCode: undefined, cancelled: true, truncated: false };
+    const result = deferred<BashResult>();
+    const running = deferred<void>();
+    const sdkBash = vi.spyOn(AgentSession.prototype, 'executeBash').mockImplementation(async () => {
+      running.resolve();
+      return result.promise;
+    });
+    const sdkAbort = vi.spyOn(AgentSession.prototype, 'abortBash').mockImplementation(() => {});
+
+    try {
+      const session = await hub.createSession({ cwd });
+      const first = hub.executeBash(session.sessionId, 'first', false);
+      await running.promise;
+      await expect(hub.executeBash(session.sessionId, 'second', false)).rejects.toThrow('already running');
+      await hub.abortBash(session.sessionId);
+      expect(sdkAbort).toHaveBeenCalledOnce();
+      expect((await hub.openSession(session.sessionFile!)).isBashRunning).toBe(true);
+      expect(sdkBash).toHaveBeenCalledOnce();
+
+      result.resolve(cancelled);
+      await first;
+      expect((await hub.openSession(session.sessionFile!)).isBashRunning).toBe(false);
+      await hub.executeBash(session.sessionId, 'third', false);
+      expect(sdkBash).toHaveBeenCalledTimes(2);
+      const updates = events.filter((event) => event.type === 'bash_update');
+      expect(updates.map((event) => event.command)).toEqual(['first', 'first', 'third', 'third']);
+    } finally {
+      result.resolve(cancelled);
+      await hub.disposeAll();
     }
   });
 });
