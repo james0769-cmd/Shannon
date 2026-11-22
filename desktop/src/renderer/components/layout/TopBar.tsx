@@ -52,6 +52,8 @@ export const TopBar: React.FC = () => {
     exportActiveSessionHtml,
     compactActiveSession,
     setSettingsOpen,
+    streamingBySession,
+    liveBashBySession,
   } = useAppStore();
 
   const [titleMenuOpen, setTitleMenuOpen] = useState(false);
@@ -72,6 +74,16 @@ export const TopBar: React.FC = () => {
     [sessions, activeSession?.sessionFile],
   );
   const isArchived = Boolean(activeSummary?.archived);
+
+  // Only surface the workspace toolbar once a conversation actually exists
+  // (a freshly created session is empty until the first prompt).
+  const activeSessionId = activeSession?.sessionId;
+  const hasLiveOutput = Boolean(
+    activeSessionId && (streamingBySession[activeSessionId] || liveBashBySession[activeSessionId]),
+  );
+  const hasConversation = Boolean(
+    activeSession && (activeSession.messages.length > 0 || hasLiveOutput),
+  );
 
   const handleInspectorTab = (tab: 'context' | 'tree' | 'resources') => {
     if (inspectorOpen && inspectorTab === tab) {
@@ -292,147 +304,149 @@ export const TopBar: React.FC = () => {
           )}
         </div>
 
-        {/* Minimalist Icon Toolbar */}
-        <div className="app-no-drag relative flex items-center gap-0.5 text-[var(--text-secondary)]">
-          <button
-            type="button"
-            onClick={() =>
-              void createNewSession(
-                activeSession
-                  ? { cwd: activeSession.cwd, projectId: activeSession.projectId }
-                  : undefined,
-              )
-            }
-            className="rounded-md p-1.5 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
-            title="New Chat (⌘N)"
-          >
-            <SquarePen className="w-4 h-4" />
-          </button>
+        {/* Minimalist Icon Toolbar (hidden until a conversation starts) */}
+        {hasConversation && (
+          <div className="app-no-drag relative flex items-center gap-0.5 text-[var(--text-secondary)]">
+            <button
+              type="button"
+              onClick={() =>
+                void createNewSession(
+                  activeSession
+                    ? { cwd: activeSession.cwd, projectId: activeSession.projectId }
+                    : undefined,
+                )
+              }
+              className="rounded-md p-1.5 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+              title="New Chat (⌘N)"
+            >
+              <SquarePen className="w-4 h-4" />
+            </button>
 
-          <button
-            type="button"
-            onClick={() => void toggleTerminal()}
-            className={`rounded-md p-1.5 transition-colors cursor-pointer ${
-              terminalOpen
-                ? 'bg-[var(--bg-active-row)] text-[var(--text-primary)]'
-                : 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
-            }`}
-            title="Toggle Terminal (⌃` / ⌘`)"
-          >
-            <Terminal className="w-4 h-4" />
-          </button>
+            <button
+              type="button"
+              onClick={() => void toggleTerminal()}
+              className={`rounded-md p-1.5 transition-colors cursor-pointer ${
+                terminalOpen
+                  ? 'bg-[var(--bg-active-row)] text-[var(--text-primary)]'
+                  : 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+              }`}
+              title="Toggle Terminal (⌃` / ⌘`)"
+            >
+              <Terminal className="w-4 h-4" />
+            </button>
 
-          {activeSession && (
-            <>
-              <button
-                type="button"
-                onClick={() => handleInspectorTab('context')}
-                className={`rounded-md p-1.5 transition-colors cursor-pointer ${
-                  inspectorOpen && inspectorTab === 'context'
-                    ? 'bg-[var(--bg-active-row)] text-[var(--text-primary)]'
-                    : 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
-                }`}
-                title="Context Breakdown"
-              >
-                <LayoutList className="w-4 h-4" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleInspectorTab('tree')}
-                className={`rounded-md p-1.5 transition-colors cursor-pointer ${
-                  inspectorOpen && inspectorTab === 'tree'
-                    ? 'bg-[var(--bg-active-row)] text-[var(--text-primary)]'
-                    : 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
-                }`}
-                title="Session Branch Tree"
-              >
-                <GitFork className="w-4 h-4" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleInspectorTab('resources')}
-                className={`rounded-md p-1.5 transition-colors cursor-pointer ${
-                  inspectorOpen && inspectorTab === 'resources'
-                    ? 'bg-[var(--bg-active-row)] text-[var(--text-primary)]'
-                    : 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
-                }`}
-                title="Project Instructions, Skills & Tools"
-              >
-                <Layers className="w-4 h-4" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => window.shannon.revealInFinder(activeSession.cwd)}
-                className="rounded-md p-1.5 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
-                title={`Reveal folder: ${activeSession.cwd}`}
-              >
-                <Folder className="w-4 h-4" />
-              </button>
-            </>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setMoreMenuOpen((v) => !v)}
-            className="rounded-md p-1.5 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
-            title="More options"
-          >
-            <MoreHorizontal className="w-4 h-4" />
-          </button>
-
-          {moreMenuOpen && (
-            <>
-              <div
-                className="fixed inset-0 z-30"
-                onClick={() => setMoreMenuOpen(false)}
-              />
-              <div className="absolute right-0 top-9 z-40 w-48 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-elevated)] py-1 shadow-[var(--shadow-popover)] text-[12.5px]">
-                {activeSession && (
-                  <>
-                    <button
-                      type="button"
-                      disabled={activeSession.isStreaming}
-                      onClick={() => {
-                        setMoreMenuOpen(false);
-                        void compactActiveSession();
-                      }}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40 cursor-pointer"
-                    >
-                      <Minimize2 className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
-                      Compact context
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMoreMenuOpen(false);
-                        void exportActiveSessionHtml();
-                      }}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[var(--text-primary)] hover:bg-[var(--bg-hover)] cursor-pointer"
-                    >
-                      <Download className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
-                      Export HTML
-                    </button>
-                    <div className="my-1 border-t border-[var(--border-hairline)]" />
-                  </>
-                )}
+            {activeSession && (
+              <>
                 <button
                   type="button"
-                  onClick={() => {
-                    setMoreMenuOpen(false);
-                    setSettingsOpen(true);
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[var(--text-primary)] hover:bg-[var(--bg-hover)] cursor-pointer"
+                  onClick={() => handleInspectorTab('context')}
+                  className={`rounded-md p-1.5 transition-colors cursor-pointer ${
+                    inspectorOpen && inspectorTab === 'context'
+                      ? 'bg-[var(--bg-active-row)] text-[var(--text-primary)]'
+                      : 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+                  }`}
+                  title="Context Breakdown"
                 >
-                  <Settings className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
-                  API &amp; Models…
+                  <LayoutList className="w-4 h-4" />
                 </button>
-              </div>
-            </>
-          )}
-        </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleInspectorTab('tree')}
+                  className={`rounded-md p-1.5 transition-colors cursor-pointer ${
+                    inspectorOpen && inspectorTab === 'tree'
+                      ? 'bg-[var(--bg-active-row)] text-[var(--text-primary)]'
+                      : 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+                  }`}
+                  title="Session Branch Tree"
+                >
+                  <GitFork className="w-4 h-4" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleInspectorTab('resources')}
+                  className={`rounded-md p-1.5 transition-colors cursor-pointer ${
+                    inspectorOpen && inspectorTab === 'resources'
+                      ? 'bg-[var(--bg-active-row)] text-[var(--text-primary)]'
+                      : 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+                  }`}
+                  title="Project Instructions, Skills & Tools"
+                >
+                  <Layers className="w-4 h-4" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => window.shannon.revealInFinder(activeSession.cwd)}
+                  className="rounded-md p-1.5 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+                  title={`Reveal folder: ${activeSession.cwd}`}
+                >
+                  <Folder className="w-4 h-4" />
+                </button>
+              </>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setMoreMenuOpen((v) => !v)}
+              className="rounded-md p-1.5 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+              title="More options"
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+
+            {moreMenuOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-30"
+                  onClick={() => setMoreMenuOpen(false)}
+                />
+                <div className="absolute right-0 top-9 z-40 w-48 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-elevated)] py-1 shadow-[var(--shadow-popover)] text-[12.5px]">
+                  {activeSession && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={activeSession.isStreaming}
+                        onClick={() => {
+                          setMoreMenuOpen(false);
+                          void compactActiveSession();
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40 cursor-pointer"
+                      >
+                        <Minimize2 className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
+                        Compact context
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMoreMenuOpen(false);
+                          void exportActiveSessionHtml();
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[var(--text-primary)] hover:bg-[var(--bg-hover)] cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
+                        Export HTML
+                      </button>
+                      <div className="my-1 border-t border-[var(--border-hairline)]" />
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoreMenuOpen(false);
+                      setSettingsOpen(true);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[var(--text-primary)] hover:bg-[var(--bg-hover)] cursor-pointer"
+                  >
+                    <Settings className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
+                    API &amp; Models…
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </header>
   );

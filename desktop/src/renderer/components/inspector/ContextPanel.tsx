@@ -217,7 +217,7 @@ export const ContextPanel: React.FC = () => {
 
   if (!activeSession || !breakdown) {
     return (
-      <div className="p-4 text-[12.5px] text-[var(--text-muted)]">
+      <div className="px-3 py-3 text-[12px] text-[var(--text-muted)]">
         Open or start a chat to inspect context breakdown.
       </div>
     );
@@ -243,26 +243,26 @@ export const ContextPanel: React.FC = () => {
     cacheDenominator > 0 ? Math.round((totalStats.cacheRead / cacheDenominator) * 100) : 0;
 
   const renderDetailItems = (details: ContextCategoryDetailItem[]) => (
-    <div className="ml-5 mr-1 mb-1 mt-0.5 max-h-44 overflow-y-auto rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-canvas)]/70 px-2 py-1 space-y-0.5">
+    <div className="ml-4 mr-1 mb-1.5 max-h-44 overflow-y-auto border-l border-[var(--border-hairline)] pl-2 pr-0.5 space-y-px">
       {details.map((item, idx) => (
         <button
           key={`${item.label}-${idx}`}
           type="button"
           disabled={!item.entryId}
           onClick={() => item.entryId && highlightEntry(item.entryId)}
-          className={`flex w-full items-center justify-between gap-2 rounded px-1.5 py-1 text-left text-[11.5px] ${
+          className={`flex w-full items-center justify-between gap-2 rounded px-1 py-[3px] text-left text-[11px] ${
             item.entryId ? 'hover:bg-[var(--bg-hover)] cursor-pointer' : 'cursor-default'
           }`}
         >
           <span className="truncate text-[var(--text-secondary)]">
             {item.label}
             {item.sublabel && (
-              <span className="ml-1.5 text-[10.5px] text-[var(--text-muted)]">
+              <span className="ml-1.5 text-[10px] text-[var(--text-muted)]">
                 {item.sublabel}
               </span>
             )}
           </span>
-          <span className="shrink-0 tabular-nums text-[11px] text-[var(--text-primary)]">
+          <span className="shrink-0 tabular-nums text-[10.5px] text-[var(--text-primary)]">
             ~{formatTokens(item.tokens)}
           </span>
         </button>
@@ -278,312 +278,310 @@ export const ContextPanel: React.FC = () => {
   const topDisclosureOpen = Boolean(expandedKeys['disclosure:top']);
 
   return (
-    <div className="p-3">
-      <div className="rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] shadow-[var(--shadow-card)] overflow-hidden">
-        {/* Section 1: Context window */}
-        <div>
-          <button
-            type="button"
-            onClick={() => setBreakdownOpen((v) => !v)}
-            className="flex w-full items-center justify-between gap-2 px-4 pt-3.5 pb-2.5 text-left hover:bg-[var(--bg-hover)]/40 transition-colors cursor-pointer"
-          >
-            <span className="text-[13px] text-[var(--text-secondary)]">Context window</span>
-            <span className="flex items-center gap-1.5 tabular-nums text-[13px] text-[var(--text-secondary)]">
-              <span>
-                {formatTokens(breakdown.totalTokens)} / {formatTokens(breakdown.contextWindow)} (
-                {Math.round(breakdown.percent ?? 0)}%)
-              </span>
-              <ChevronDown
-                className={`w-3.5 h-3.5 text-[var(--text-muted)] transition-transform ${
-                  breakdownOpen ? '' : '-rotate-90'
-                }`}
-              />
+    <div className="px-3 py-2 pb-4">
+      {/* Section 1: Context window */}
+      <div>
+        <button
+          type="button"
+          onClick={() => setBreakdownOpen((v) => !v)}
+          className="flex w-full items-center justify-between gap-2 rounded px-1.5 py-1 text-left transition-colors hover:bg-[var(--bg-hover)]/50 cursor-pointer"
+        >
+          <span className="text-[12.5px] text-[var(--text-secondary)]">Context window</span>
+          <span className="flex items-center gap-1.5 tabular-nums text-[12.5px] text-[var(--text-secondary)]">
+            <span>
+              {formatTokens(breakdown.totalTokens)} / {formatTokens(breakdown.contextWindow)} (
+              {Math.round(breakdown.percent ?? 0)}%)
             </span>
-          </button>
+            <ChevronDown
+              className={`w-3.5 h-3.5 text-[var(--text-muted)] transition-transform ${
+                breakdownOpen ? '' : '-rotate-90'
+              }`}
+            />
+          </span>
+        </button>
 
-          {/* Thin Monochromatic Segmented Bar */}
-          <div className="px-4 pb-3">
-            <div className="h-[5px] w-full overflow-hidden rounded-full bg-[var(--ctx-bar-track)] flex">
-              {barSegments.map((seg) => (
-                <div
-                  key={seg.id}
-                  style={{
-                    width: `${Math.max(0.4, seg.percent)}%`,
-                    backgroundColor: seg.color,
-                  }}
-                  title={`${seg.label}: ${formatTokens(seg.tokens)} (${seg.percent.toFixed(1)}%)`}
-                />
-              ))}
-            </div>
+        {/* Thin Monochromatic Segmented Bar */}
+        <div className="px-1.5 pb-2">
+          <div className="h-1 w-full overflow-hidden rounded-full bg-[var(--ctx-bar-track)] flex">
+            {barSegments.map((seg) => (
+              <div
+                key={seg.id}
+                style={{
+                  width: `${Math.max(0.4, seg.percent)}%`,
+                  backgroundColor: seg.color,
+                }}
+                title={`${seg.label}: ${formatTokens(seg.tokens)} (${seg.percent.toFixed(1)}%)`}
+              />
+            ))}
           </div>
+        </div>
 
-          {breakdownOpen && (
-            <div className="px-2 pb-2.5 space-y-0.5">
-              {allSwatchRows.map((row) => {
-                const isOpen = Boolean(expandedKeys[row.id]);
-                return (
-                  <div key={row.id}>
-                    <button
-                      type="button"
-                      disabled={!row.expandable}
-                      onClick={() => row.expandable && toggleKey(row.id)}
-                      className={`flex w-full items-center gap-2.5 rounded-md px-2 py-1 text-left transition-colors ${
-                        row.expandable
-                          ? 'hover:bg-[var(--bg-hover)]/60 cursor-pointer'
-                          : 'cursor-default'
-                      }`}
-                    >
-                      <span className="w-3 h-3 shrink-0 flex items-center justify-center">
-                        <span
-                          className="h-2.5 w-2.5 rounded-[3px]"
-                          style={{ backgroundColor: row.color }}
-                        />
-                      </span>
-                      <span className="flex-1 min-w-0 truncate text-[13px] text-[var(--text-primary)]">
-                        {row.label}
-                      </span>
-                      <span className="shrink-0 text-right tabular-nums text-[12.5px] text-[var(--text-secondary)]">
-                        {formatTokens(row.tokens)}
-                      </span>
-                      <span className="w-[46px] shrink-0 text-right tabular-nums text-[12.5px] text-[var(--text-primary)]">
-                        {row.percent.toFixed(1)}%
-                      </span>
-                    </button>
+        {breakdownOpen && (
+          <div className="pb-1 space-y-px">
+            {allSwatchRows.map((row) => {
+              const isOpen = Boolean(expandedKeys[row.id]);
+              return (
+                <div key={row.id}>
+                  <button
+                    type="button"
+                    disabled={!row.expandable}
+                    onClick={() => row.expandable && toggleKey(row.id)}
+                    className={`flex w-full items-center gap-2 rounded px-1.5 py-[3px] text-left transition-colors ${
+                      row.expandable
+                        ? 'hover:bg-[var(--bg-hover)]/60 cursor-pointer'
+                        : 'cursor-default'
+                    }`}
+                  >
+                    <span className="w-2.5 h-2.5 shrink-0 flex items-center justify-center">
+                      <span
+                        className="h-2 w-2 rounded-[2px]"
+                        style={{ backgroundColor: row.color }}
+                      />
+                    </span>
+                    <span className="flex-1 min-w-0 truncate text-[12.5px] text-[var(--text-primary)]">
+                      {row.label}
+                    </span>
+                    <span className="shrink-0 text-right tabular-nums text-[11.5px] text-[var(--text-secondary)]">
+                      {formatTokens(row.tokens)}
+                    </span>
+                    <span className="w-10 shrink-0 text-right tabular-nums text-[11.5px] text-[var(--text-primary)]">
+                      {row.percent.toFixed(1)}%
+                    </span>
+                  </button>
 
-                    {isOpen && row.id === 'messages' && messageSubCategories.length > 0 && (
-                      <div className="ml-5 mr-1 mb-1 mt-0.5 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-canvas)]/60 py-1 px-1 space-y-0.5">
-                        {messageSubCategories.map((sub) => {
-                          const subKey = `sub:${sub.key}`;
-                          const subOpen = Boolean(expandedKeys[subKey]);
-                          const hasSubDetails = sub.details.length > 0;
-                          return (
-                            <div key={sub.key}>
-                              <button
-                                type="button"
-                                disabled={!hasSubDetails}
-                                onClick={() => hasSubDetails && toggleKey(subKey)}
-                                className={`flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-[12px] ${
-                                  hasSubDetails
-                                    ? 'hover:bg-[var(--bg-hover)]/60 cursor-pointer'
-                                    : 'cursor-default'
-                                }`}
-                              >
-                                <span className="w-3 h-3 shrink-0 flex items-center justify-center text-[var(--text-muted)]">
-                                  {hasSubDetails &&
-                                    (subOpen ? (
-                                      <ChevronDown className="w-3 h-3" />
-                                    ) : (
-                                      <ChevronRight className="w-3 h-3" />
-                                    ))}
-                                </span>
-                                <span className="flex-1 min-w-0 truncate text-[var(--text-secondary)]">
-                                  {sub.label}
-                                </span>
-                                <span className="shrink-0 text-right tabular-nums text-[11.5px] text-[var(--text-secondary)]">
-                                  {formatTokens(sub.tokens)}
-                                </span>
-                                <span className="w-[42px] shrink-0 text-right tabular-nums text-[11.5px] text-[var(--text-primary)]">
-                                  {sub.percent.toFixed(1)}%
-                                </span>
-                              </button>
-                              {subOpen && hasSubDetails && renderDetailItems(sub.details)}
-                            </div>
-                          );
-                        })}
-                      </div>
+                  {isOpen && row.id === 'messages' && messageSubCategories.length > 0 && (
+                    <div className="ml-4 mr-1 mb-1.5 border-l border-[var(--border-hairline)] pl-2 space-y-px">
+                      {messageSubCategories.map((sub) => {
+                        const subKey = `sub:${sub.key}`;
+                        const subOpen = Boolean(expandedKeys[subKey]);
+                        const hasSubDetails = sub.details.length > 0;
+                        return (
+                          <div key={sub.key}>
+                            <button
+                              type="button"
+                              disabled={!hasSubDetails}
+                              onClick={() => hasSubDetails && toggleKey(subKey)}
+                              className={`flex w-full items-center gap-1.5 rounded px-1 py-[3px] text-left text-[11.5px] ${
+                                hasSubDetails
+                                  ? 'hover:bg-[var(--bg-hover)]/60 cursor-pointer'
+                                  : 'cursor-default'
+                              }`}
+                            >
+                              <span className="w-3 h-3 shrink-0 flex items-center justify-center text-[var(--text-muted)]">
+                                {hasSubDetails &&
+                                  (subOpen ? (
+                                    <ChevronDown className="w-2.5 h-2.5" />
+                                  ) : (
+                                    <ChevronRight className="w-2.5 h-2.5" />
+                                  ))}
+                              </span>
+                              <span className="flex-1 min-w-0 truncate text-[var(--text-secondary)]">
+                                {sub.label}
+                              </span>
+                              <span className="shrink-0 text-right tabular-nums text-[11px] text-[var(--text-secondary)]">
+                                {formatTokens(sub.tokens)}
+                              </span>
+                              <span className="w-10 shrink-0 text-right tabular-nums text-[11px] text-[var(--text-primary)]">
+                                {sub.percent.toFixed(1)}%
+                              </span>
+                            </button>
+                            {subOpen && hasSubDetails && renderDetailItems(sub.details)}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {isOpen &&
+                    row.id === 'system_prompt' &&
+                    row.systemPromptPreview && (
+                      <pre className="ml-4 mr-1 mb-1.5 max-h-44 overflow-y-auto whitespace-pre-wrap break-words border-l border-[var(--border-hairline)] pl-2 pr-1 font-mono text-[10.5px] leading-relaxed text-[var(--text-secondary)]">
+                        {row.systemPromptPreview}
+                      </pre>
                     )}
 
-                    {isOpen &&
-                      row.id === 'system_prompt' &&
-                      row.systemPromptPreview && (
-                        <pre className="ml-5 mr-1 mb-1 mt-0.5 max-h-44 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-canvas)]/70 p-2 font-mono text-[11px] leading-relaxed text-[var(--text-secondary)]">
-                          {row.systemPromptPreview}
-                        </pre>
-                      )}
-
-                    {isOpen &&
-                      row.id !== 'messages' &&
-                      row.id !== 'system_prompt' &&
-                      row.details &&
-                      row.details.length > 0 &&
-                      renderDetailItems(row.details)}
-                  </div>
-                );
-              })}
-
-              {/* Disclosure row: Tools */}
-              {allTools.length > 0 && (
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => toggleKey('disclosure:tools')}
-                    className="flex w-full items-center gap-2.5 rounded-md px-2 py-1 text-left hover:bg-[var(--bg-hover)]/60 transition-colors cursor-pointer"
-                  >
-                    <span className="w-3 h-3 shrink-0 flex items-center justify-center text-[var(--text-muted)]">
-                      {toolsDisclosureOpen ? (
-                        <ChevronDown className="w-3 h-3" />
-                      ) : (
-                        <ChevronRight className="w-3 h-3" />
-                      )}
-                    </span>
-                    <span className="flex-1 min-w-0 truncate text-[13px] text-[var(--text-primary)]">
-                      Tools
-                    </span>
-                    <span className="shrink-0 text-right tabular-nums text-[12.5px] text-[var(--text-secondary)]">
-                      {formatTokens(totalToolTokens)}
-                    </span>
-                    <span className="w-[46px] shrink-0 text-right tabular-nums text-[12.5px] text-[var(--text-secondary)]">
-                      {allTools.length}
-                    </span>
-                  </button>
-
-                  {toolsDisclosureOpen && (
-                    <div className="ml-5 mr-1 mb-1 mt-0.5 max-h-48 overflow-y-auto rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-canvas)]/70 px-2 py-1 space-y-0.5">
-                      {allTools.map((tool, idx) => (
-                        <div
-                          key={`${tool.label}-${idx}`}
-                          className="flex items-center justify-between gap-2 rounded px-1.5 py-1 text-[11.5px]"
-                        >
-                          <span className="flex items-center gap-1.5 min-w-0">
-                            <span className="truncate font-mono text-[var(--text-primary)]">
-                              {tool.label}
-                            </span>
-                            <span className="shrink-0 rounded bg-[var(--bg-subtle)] px-1 py-0.2 text-[10px] text-[var(--text-muted)]">
-                              {tool.sourceTag}
-                            </span>
-                          </span>
-                          <span className="shrink-0 tabular-nums text-[11px] text-[var(--text-secondary)]">
-                            ~{formatTokens(tool.tokens)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  {isOpen &&
+                    row.id !== 'messages' &&
+                    row.id !== 'system_prompt' &&
+                    row.details &&
+                    row.details.length > 0 &&
+                    renderDetailItems(row.details)}
                 </div>
-              )}
+              );
+            })}
 
-              {/* Disclosure row: Top consumers */}
-              {breakdown.topItems.length > 0 && (
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => toggleKey('disclosure:top')}
-                    className="flex w-full items-center gap-2.5 rounded-md px-2 py-1 text-left hover:bg-[var(--bg-hover)]/60 transition-colors cursor-pointer"
-                  >
-                    <span className="w-3 h-3 shrink-0 flex items-center justify-center text-[var(--text-muted)]">
-                      {topDisclosureOpen ? (
-                        <ChevronDown className="w-3 h-3" />
-                      ) : (
-                        <ChevronRight className="w-3 h-3" />
-                      )}
-                    </span>
-                    <span className="flex-1 min-w-0 truncate text-[13px] text-[var(--text-primary)]">
-                      Top consumers
-                    </span>
-                    <span className="shrink-0 text-right tabular-nums text-[12.5px] text-[var(--text-secondary)]">
-                      {formatTokens(topItemsTokens)}
-                    </span>
-                    <span className="w-[46px] shrink-0 text-right tabular-nums text-[12.5px] text-[var(--text-secondary)]">
-                      {breakdown.topItems.length}
-                    </span>
-                  </button>
-
-                  {topDisclosureOpen && (
-                    <div className="ml-5 mr-1 mb-1 mt-0.5 max-h-48 overflow-y-auto rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-canvas)]/70 px-2 py-1 space-y-0.5">
-                      {breakdown.topItems.map((item, idx) => (
-                        <button
-                          key={`${item.label}-${idx}`}
-                          type="button"
-                          disabled={!item.entryId}
-                          onClick={() => item.entryId && highlightEntry(item.entryId)}
-                          className={`flex w-full items-center justify-between gap-2 rounded px-1.5 py-1 text-left text-[11.5px] ${
-                            item.entryId
-                              ? 'hover:bg-[var(--bg-hover)] cursor-pointer'
-                              : 'cursor-default'
-                          }`}
-                        >
-                          <span className="truncate text-[var(--text-secondary)]">
-                            {item.label}
-                          </span>
-                          <span className="shrink-0 tabular-nums text-[11px] text-[var(--text-primary)]">
-                            ~{formatTokens(item.tokens)}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Quiet muted row for excluded local !!bash */}
-              {breakdown.excludedBashCount > 0 && (
-                <div className="flex w-full items-center gap-2.5 px-2 py-1 text-[var(--text-muted)]">
-                  <span className="w-3 h-3 shrink-0" />
-                  <span className="flex-1 min-w-0 truncate text-[12.5px]">Local !!bash</span>
-                  <span className="shrink-0 text-right tabular-nums text-[12px]">0</span>
-                  <span className="w-[46px] shrink-0 text-right tabular-nums text-[12px]">
-                    {breakdown.excludedBashCount}
+            {/* Disclosure row: Tools */}
+            {allTools.length > 0 && (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => toggleKey('disclosure:tools')}
+                  className="flex w-full items-center gap-2 rounded px-1.5 py-[3px] text-left hover:bg-[var(--bg-hover)]/60 transition-colors cursor-pointer"
+                >
+                  <span className="w-3 h-3 shrink-0 flex items-center justify-center text-[var(--text-muted)]">
+                    {toolsDisclosureOpen ? (
+                      <ChevronDown className="w-2.5 h-2.5" />
+                    ) : (
+                      <ChevronRight className="w-2.5 h-2.5" />
+                    )}
                   </span>
-                </div>
-              )}
-            </div>
-          )}
+                  <span className="flex-1 min-w-0 truncate text-[12.5px] text-[var(--text-primary)]">
+                    Tools
+                  </span>
+                  <span className="shrink-0 text-right tabular-nums text-[11.5px] text-[var(--text-secondary)]">
+                    {formatTokens(totalToolTokens)}
+                  </span>
+                  <span className="w-10 shrink-0 text-right tabular-nums text-[11.5px] text-[var(--text-secondary)]">
+                    {allTools.length}
+                  </span>
+                </button>
+
+                {toolsDisclosureOpen && (
+                  <div className="ml-4 mr-1 mb-1.5 max-h-48 overflow-y-auto border-l border-[var(--border-hairline)] pl-2 pr-0.5 space-y-px">
+                    {allTools.map((tool, idx) => (
+                      <div
+                        key={`${tool.label}-${idx}`}
+                        className="flex items-center justify-between gap-2 px-1 py-[3px] text-[11px]"
+                      >
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          <span className="truncate font-mono text-[var(--text-primary)]">
+                            {tool.label}
+                          </span>
+                          <span className="shrink-0 rounded bg-[var(--bg-subtle)] px-1 text-[9.5px] text-[var(--text-muted)]">
+                            {tool.sourceTag}
+                          </span>
+                        </span>
+                        <span className="shrink-0 tabular-nums text-[10.5px] text-[var(--text-secondary)]">
+                          ~{formatTokens(tool.tokens)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Disclosure row: Top consumers */}
+            {breakdown.topItems.length > 0 && (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => toggleKey('disclosure:top')}
+                  className="flex w-full items-center gap-2 rounded px-1.5 py-[3px] text-left hover:bg-[var(--bg-hover)]/60 transition-colors cursor-pointer"
+                >
+                  <span className="w-3 h-3 shrink-0 flex items-center justify-center text-[var(--text-muted)]">
+                    {topDisclosureOpen ? (
+                      <ChevronDown className="w-2.5 h-2.5" />
+                    ) : (
+                      <ChevronRight className="w-2.5 h-2.5" />
+                    )}
+                  </span>
+                  <span className="flex-1 min-w-0 truncate text-[12.5px] text-[var(--text-primary)]">
+                    Top consumers
+                  </span>
+                  <span className="shrink-0 text-right tabular-nums text-[11.5px] text-[var(--text-secondary)]">
+                    {formatTokens(topItemsTokens)}
+                  </span>
+                  <span className="w-10 shrink-0 text-right tabular-nums text-[11.5px] text-[var(--text-secondary)]">
+                    {breakdown.topItems.length}
+                  </span>
+                </button>
+
+                {topDisclosureOpen && (
+                  <div className="ml-4 mr-1 mb-1.5 max-h-48 overflow-y-auto border-l border-[var(--border-hairline)] pl-2 pr-0.5 space-y-px">
+                    {breakdown.topItems.map((item, idx) => (
+                      <button
+                        key={`${item.label}-${idx}`}
+                        type="button"
+                        disabled={!item.entryId}
+                        onClick={() => item.entryId && highlightEntry(item.entryId)}
+                        className={`flex w-full items-center justify-between gap-2 px-1 py-[3px] text-left text-[11px] ${
+                          item.entryId
+                            ? 'hover:bg-[var(--bg-hover)] cursor-pointer'
+                            : 'cursor-default'
+                        }`}
+                      >
+                        <span className="truncate text-[var(--text-secondary)]">
+                          {item.label}
+                        </span>
+                        <span className="shrink-0 tabular-nums text-[10.5px] text-[var(--text-primary)]">
+                          ~{formatTokens(item.tokens)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Quiet muted row for excluded local !!bash */}
+            {breakdown.excludedBashCount > 0 && (
+              <div className="flex w-full items-center gap-2 px-1.5 py-[3px] text-[var(--text-muted)]">
+                <span className="w-2.5 shrink-0" />
+                <span className="flex-1 min-w-0 truncate text-[12px]">Local !!bash</span>
+                <span className="shrink-0 text-right tabular-nums text-[11px]">0</span>
+                <span className="w-10 shrink-0 text-right tabular-nums text-[11px]">
+                  {breakdown.excludedBashCount}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Section 2: Session usage */}
+      <div className="mt-2 border-t border-[var(--border-hairline)] pt-2 space-y-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[12.5px] text-[var(--text-secondary)]">Session usage</span>
+          <span className="text-[11px] text-[var(--text-muted)]">
+            {breakdown.isApiMeasured ? 'API measured' : 'Estimated'}
+          </span>
         </div>
 
-        {/* Section 2: Session usage */}
-        <div className="border-t border-[var(--border-hairline)] px-4 py-3.5 space-y-2.5">
+        <div className="space-y-1">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[13px] text-[var(--text-secondary)]">Session usage</span>
-            <span className="text-[11.5px] text-[var(--text-muted)]">
-              {breakdown.isApiMeasured ? 'API measured' : 'Estimated'}
+            <span className="text-[12px] text-[var(--text-primary)]">Cache hit rate</span>
+            <span className="tabular-nums text-[11.5px] text-[var(--text-secondary)]">
+              {cacheHitPct}% · {formatTokens(totalStats.cacheRead)} read
             </span>
           </div>
 
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[13px] text-[var(--text-primary)]">Cache hit rate</span>
-              <span className="tabular-nums text-[12.5px] text-[var(--text-secondary)]">
-                {cacheHitPct}% · {formatTokens(totalStats.cacheRead)} read
-              </span>
-            </div>
-
-            <div className="h-[5px] w-full overflow-hidden rounded-full bg-[var(--ctx-bar-track)]">
-              <div
-                className="h-full rounded-full bg-[var(--ctx-usage-bar)] transition-[width] duration-300"
-                style={{ width: `${cacheHitPct}%` }}
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between pt-0.5 text-[12px] text-[var(--text-secondary)] tabular-nums">
-            <span>Cost ${cost.toFixed(4)}</span>
-            <span>In {formatTokens(totalStats.input)}</span>
-            <span>Out {formatTokens(totalStats.output)}</span>
+          <div className="h-1 w-full overflow-hidden rounded-full bg-[var(--ctx-bar-track)]">
+            <div
+              className="h-full rounded-full bg-[var(--ctx-usage-bar)] transition-[width] duration-300"
+              style={{ width: `${cacheHitPct}%` }}
+            />
           </div>
         </div>
 
-        {/* Section 3: Compact conversation */}
-        <div className="border-t border-[var(--border-hairline)] px-4 py-3 space-y-2">
-          <div className="flex items-center gap-1.5 text-[12.5px] text-[var(--text-secondary)]">
-            <Minimize2 className="w-3.5 h-3.5 text-[var(--accent)]" />
-            <span>Compact conversation</span>
-          </div>
-          <input
-            value={compactInstructions}
-            onChange={(e) => setCompactInstructions(e.target.value)}
-            placeholder="Optional focus (e.g. keep API schema decisions)…"
-            className="w-full rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-canvas)] px-2.5 py-1.5 text-[12px] text-[var(--text-primary)] outline-none focus:border-[var(--border-strong)]"
-          />
-          <button
-            type="button"
-            disabled={compacting || activeSession.isStreaming}
-            onClick={() => void handleCompact()}
-            className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-[12.5px] font-medium text-white hover:bg-[var(--accent-hover)] disabled:opacity-45 cursor-pointer"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            {compacting ? 'Compacting…' : 'Compact now'}
-          </button>
+        <div className="flex items-center justify-between text-[11.5px] text-[var(--text-secondary)] tabular-nums">
+          <span>Cost ${cost.toFixed(4)}</span>
+          <span>In {formatTokens(totalStats.input)}</span>
+          <span>Out {formatTokens(totalStats.output)}</span>
         </div>
+      </div>
+
+      {/* Section 3: Compact conversation */}
+      <div className="mt-2 border-t border-[var(--border-hairline)] pt-2 space-y-1.5">
+        <div className="flex items-center gap-1.5 text-[12px] text-[var(--text-secondary)]">
+          <Minimize2 className="w-3 h-3 text-[var(--accent)]" />
+          <span>Compact conversation</span>
+        </div>
+        <input
+          value={compactInstructions}
+          onChange={(e) => setCompactInstructions(e.target.value)}
+          placeholder="Optional focus (e.g. keep API schema decisions)…"
+          className="w-full rounded-md border border-[var(--border-hairline)] bg-[var(--bg-canvas)] px-2 py-1 text-[11.5px] text-[var(--text-primary)] outline-none focus:border-[var(--border-strong)]"
+        />
+        <button
+          type="button"
+          disabled={compacting || activeSession.isStreaming}
+          onClick={() => void handleCompact()}
+          className="flex w-full items-center justify-center gap-1.5 rounded-md bg-[var(--accent)] px-3 py-1 text-[12px] font-medium text-white hover:bg-[var(--accent-hover)] disabled:opacity-45 cursor-pointer"
+        >
+          <Sparkles className="w-3 h-3" />
+          {compacting ? 'Compacting…' : 'Compact now'}
+        </button>
       </div>
     </div>
   );
