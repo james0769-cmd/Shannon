@@ -5,6 +5,7 @@ import type { StreamEvent } from '../shared/types.js';
 import { registerIpcHandlers } from './ipc/register.js';
 import { ProjectStore } from './pi/project-store.js';
 import { SessionHub } from './pi/session-hub.js';
+import { TerminalHub } from './terminal/terminal-hub.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -18,6 +19,19 @@ function broadcastEvent(event: StreamEvent): void {
 }
 
 const sessionHub = new SessionHub(projectStore, broadcastEvent);
+
+const terminalHub = new TerminalHub(
+  (terminalId, data) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('shannon:terminal-data', { terminalId, data });
+    }
+  },
+  (terminalId, exitCode) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('shannon:terminal-exit', { terminalId, exitCode });
+    }
+  },
+);
 
 function createWindow(): BrowserWindow {
   const themePref = projectStore.getTheme();
@@ -57,7 +71,7 @@ function createWindow(): BrowserWindow {
 }
 
 void app.whenReady().then(() => {
-  registerIpcHandlers(() => mainWindow, projectStore, sessionHub);
+  registerIpcHandlers(() => mainWindow, projectStore, sessionHub, terminalHub);
   mainWindow = createWindow();
 
   app.on('activate', () => {
@@ -68,6 +82,7 @@ void app.whenReady().then(() => {
 });
 
 app.on('before-quit', () => {
+  terminalHub.disposeAll();
   void sessionHub.disposeAll();
 });
 

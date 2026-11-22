@@ -14,6 +14,7 @@ import type {
   SessionTreeItem,
   ShannonAppConfig,
   StreamEvent,
+  TerminalInfo,
   ThemeMode,
   ThinkingLevel,
   WorkspaceFileMatch,
@@ -103,6 +104,23 @@ export interface ShannonApi {
     modelId?: string;
   }) => Promise<ConnectionTestResult>;
 
+  // Integrated Terminals
+  listTerminals: () => Promise<TerminalInfo[]>;
+  createTerminal: (options?: {
+    cwd?: string;
+    cols?: number;
+    rows?: number;
+    title?: string;
+  }) => Promise<TerminalInfo>;
+  writeTerminal: (terminalId: string, data: string) => void;
+  resizeTerminal: (terminalId: string, cols: number, rows: number) => void;
+  killTerminal: (terminalId: string) => Promise<void>;
+  getTerminalBuffer: (terminalId: string) => Promise<string>;
+  onTerminalData: (listener: (payload: { terminalId: string; data: string }) => void) => () => void;
+  onTerminalExit: (
+    listener: (payload: { terminalId: string; exitCode: number | null }) => void,
+  ) => () => void;
+
   // Events
   onEvent: (listener: (event: StreamEvent) => void) => () => void;
 }
@@ -158,6 +176,38 @@ const api: ShannonApi = {
   deleteProvider: (providerId) => ipcRenderer.invoke('providers:delete', providerId),
   fetchRemoteModels: (params) => ipcRenderer.invoke('providers:fetchRemoteModels', params),
   testConnection: (params) => ipcRenderer.invoke('providers:testConnection', params),
+
+  listTerminals: () => ipcRenderer.invoke('terminals:list'),
+  createTerminal: (options) => ipcRenderer.invoke('terminals:create', options),
+  writeTerminal: (terminalId, data) => ipcRenderer.send('terminals:write', terminalId, data),
+  resizeTerminal: (terminalId, cols, rows) =>
+    ipcRenderer.send('terminals:resize', terminalId, cols, rows),
+  killTerminal: (terminalId) => ipcRenderer.invoke('terminals:kill', terminalId),
+  getTerminalBuffer: (terminalId) => ipcRenderer.invoke('terminals:getBuffer', terminalId),
+  onTerminalData: (listener) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      payload: { terminalId: string; data: string },
+    ) => {
+      listener(payload);
+    };
+    ipcRenderer.on('shannon:terminal-data', handler);
+    return () => {
+      ipcRenderer.removeListener('shannon:terminal-data', handler);
+    };
+  },
+  onTerminalExit: (listener) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      payload: { terminalId: string; exitCode: number | null },
+    ) => {
+      listener(payload);
+    };
+    ipcRenderer.on('shannon:terminal-exit', handler);
+    return () => {
+      ipcRenderer.removeListener('shannon:terminal-exit', handler);
+    };
+  },
 
   onEvent: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: StreamEvent) => {

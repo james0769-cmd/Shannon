@@ -27,6 +27,7 @@ import { useAppStore } from '../../stores/app-store.js';
 export const TopBar: React.FC = () => {
   const {
     sidebarCollapsed,
+    sidebarWidth,
     sidebarView,
     setSidebarView,
     toggleSidebar,
@@ -41,6 +42,8 @@ export const TopBar: React.FC = () => {
     inspectorTab,
     openInspector,
     closeInspector,
+    terminalOpen,
+    toggleTerminal,
     createNewSession,
     renameSession,
     archiveSessionByPath,
@@ -48,7 +51,6 @@ export const TopBar: React.FC = () => {
     deleteSessionByPath,
     exportActiveSessionHtml,
     compactActiveSession,
-    setComposerPrefill,
     setSettingsOpen,
   } = useAppStore();
 
@@ -83,10 +85,11 @@ export const TopBar: React.FC = () => {
     <header className="app-drag-region flex h-11 shrink-0 items-center border-b border-[var(--border-hairline)] bg-[var(--bg-sidebar)] select-none">
       {/* Left chrome aligned with sidebar */}
       <div
-        className={`flex h-full items-center justify-between pl-[74px] pr-2.5 transition-all ${
+        style={sidebarCollapsed ? undefined : { width: sidebarWidth }}
+        className={`flex h-full items-center justify-between pl-[74px] pr-2.5 ${
           sidebarCollapsed
             ? 'w-auto gap-2 border-r border-transparent'
-            : 'w-[256px] shrink-0 border-r border-[var(--border-hairline)]'
+            : 'shrink-0 border-r border-[var(--border-hairline)]'
         }`}
       >
         <div className="app-no-drag flex items-center gap-0.5 text-[var(--text-secondary)]">
@@ -306,17 +309,21 @@ export const TopBar: React.FC = () => {
             <SquarePen className="w-4 h-4" />
           </button>
 
+          <button
+            type="button"
+            onClick={() => void toggleTerminal()}
+            className={`rounded-md p-1.5 transition-colors cursor-pointer ${
+              terminalOpen
+                ? 'bg-[var(--bg-active-row)] text-[var(--text-primary)]'
+                : 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+            }`}
+            title="Toggle Terminal (⌃`)"
+          >
+            <Terminal className="w-4 h-4" />
+          </button>
+
           {activeSession && (
             <>
-              <button
-                type="button"
-                onClick={() => setComposerPrefill('!')}
-                className="rounded-md p-1.5 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
-                title="Run !bash command in context"
-              >
-                <Terminal className="w-4 h-4" />
-              </button>
-
               <button
                 type="button"
                 onClick={() => handleInspectorTab('context')}

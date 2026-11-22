@@ -1,14 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowUp,
-  Brain,
+  Check,
   ChevronDown,
   FileCode2,
   Folder,
   FolderPlus,
   ImagePlus,
   Plus,
-  Search,
   Square,
   Terminal,
   X,
@@ -65,9 +64,25 @@ const THINKING_LABELS: Record<ThinkingLevel, string> = {
   low: 'Low',
   medium: 'Medium',
   high: 'High',
-  xhigh: 'X-High',
+  xhigh: 'Extra high',
   max: 'Max',
 };
+
+const KBD_KEY_CLASS =
+  'inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[5px] border border-[var(--border-strong)] bg-[var(--bg-subtle)]/60 px-1 text-[10px] leading-none text-[var(--text-muted)]';
+
+function formatContextCompact(cw: number | null | undefined): string {
+  if (!cw || cw <= 0) return '';
+  if (cw >= 950_000) return `${Math.round(cw / 1_000_000)}M`;
+  if (cw >= 1_000) return `${Math.round(cw / 1_000)}k`;
+  return String(cw);
+}
+
+function getInlineContextLabel(name: string, cw: number | null | undefined): string {
+  const tag = formatContextCompact(cw);
+  if (!tag) return '';
+  return name.toLowerCase().includes(tag.toLowerCase()) ? '' : tag;
+}
 
 function formatTokenShort(n: number | null | undefined): string {
   if (n === null || n === undefined) return '—';
@@ -111,7 +126,6 @@ export const Composer: React.FC = () => {
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const [thinkingMenuOpen, setThinkingMenuOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState('');
   const [fileMatches, setFileMatches] = useState<WorkspaceFileMatch[]>([]);
   const [atRange, setAtRange] = useState<{ start: number; end: number } | null>(null);
@@ -313,7 +327,7 @@ export const Composer: React.FC = () => {
             return true;
           }
         }
-        setThinkingMenuOpen(true);
+        setModelPickerOpen(true);
         return true;
       }
       case 'settings':
@@ -445,15 +459,62 @@ export const Composer: React.FC = () => {
     );
   }, [availableModels, modelSearch]);
 
-  const groupedModels = useMemo(() => {
-    const groups = new Map<string, typeof filteredModels>();
-    for (const m of filteredModels) {
-      const key = m.providerName || m.provider;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(m);
-    }
-    return Array.from(groups.entries());
-  }, [filteredModels]);
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      const keyLower = e.key.toLowerCase();
+
+      if (mod && e.shiftKey && keyLower === 'i') {
+        e.preventDefault();
+        setModelSearch('');
+        setModelPickerOpen((prev) => {
+          const next = !prev;
+          if (next) textareaRef.current?.blur();
+          return next;
+        });
+        return;
+      }
+
+      if (mod && e.shiftKey && keyLower === 'e') {
+        if (!activeSession || activeSession.availableThinkingLevels.length <= 1) return;
+        e.preventDefault();
+        const levels = activeSession.availableThinkingLevels;
+        const idx = levels.indexOf(activeSession.thinkingLevel);
+        const nextLevel = levels[(idx + 1) % levels.length];
+        if (nextLevel) {
+          void changeThinkingLevel(nextLevel);
+        }
+        return;
+      }
+
+      if (!modelPickerOpen) return;
+
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setModelPickerOpen(false);
+        setModelSearch('');
+        return;
+      }
+
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && /^[1-9]$/.test(e.key)) {
+        const activeTag = document.activeElement?.tagName;
+        if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
+        const target = filteredModels[Number(e.key) - 1];
+        if (!target) return;
+        e.preventDefault();
+        setModelPickerOpen(false);
+        setModelSearch('');
+        void changeModel(target.provider, target.id);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeSession, changeModel, changeThinkingLevel, filteredModels, modelPickerOpen]);
+
+  const activeModelCtxLabel = activeSession?.model
+    ? getInlineContextLabel(activeSession.model.name, activeSession.model.contextWindow)
+    : '';
 
   const isStreaming = Boolean(activeSession?.isStreaming);
   const isBashRunning = Boolean(activeSession?.isBashRunning);
@@ -877,43 +938,81 @@ export const Composer: React.FC = () => {
               )}
           </div>
 
-          {/* Right: Model · Thinking Level · Circular Context Progress Ring */}
+          {/* Right: Unified Model · Effort · Circular Context Progress Ring */}
           <div className="flex items-center gap-2 shrink-0">
-            {/* Model Picker */}
             <div className="relative">
               <button
                 type="button"
-                onClick={() => setModelPickerOpen((v) => !v)}
-                className="rounded-md px-1.5 py-0.5 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors cursor-pointer truncate max-w-[180px]"
+                onClick={() => {
+                  setModelSearch('');
+                  setModelPickerOpen((v) => !v);
+                }}
+                className={`flex items-center gap-1 rounded-lg px-2 py-0.5 text-[12.5px] transition-colors cursor-pointer max-w-[260px] ${
+                  modelPickerOpen
+                    ? 'bg-[var(--bg-hover)]'
+                    : 'hover:bg-[var(--bg-hover)]'
+                }`}
               >
-                {activeSession?.model?.name ?? 'Select model'}
+                <span className="truncate text-[var(--text-primary)]">
+                  {activeSession?.model?.name ?? 'Select model'}
+                </span>
+                {activeModelCtxLabel && (
+                  <span className="shrink-0 text-[var(--text-muted)]">{activeModelCtxLabel}</span>
+                )}
+                {activeSession && activeSession.availableThinkingLevels.length > 1 && (
+                  <>
+                    <span className="shrink-0 text-[var(--text-muted)]">·</span>
+                    <span className="shrink-0 text-[var(--text-muted)]">
+                      {THINKING_LABELS[activeSession.thinkingLevel] ?? activeSession.thinkingLevel}
+                    </span>
+                  </>
+                )}
               </button>
 
               {modelPickerOpen && (
                 <>
                   <div
                     className="fixed inset-0 z-30"
-                    onClick={() => setModelPickerOpen(false)}
+                    onClick={() => {
+                      setModelPickerOpen(false);
+                      setModelSearch('');
+                    }}
                   />
-                  <div className="absolute bottom-full right-0 mb-2 w-80 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-elevated)] shadow-[var(--shadow-popover)] z-40 overflow-hidden">
-                    <div className="flex items-center gap-2 border-b border-[var(--border-hairline)] px-3 py-2">
-                      <Search className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-                      <input
-                        autoFocus
-                        value={modelSearch}
-                        onChange={(e) => setModelSearch(e.target.value)}
-                        placeholder="Filter models or providers…"
-                        className="flex-1 bg-transparent text-[12.5px] text-[var(--text-primary)] outline-none"
-                      />
+                  <div className="absolute bottom-full right-0 mb-2 w-[228px] rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-elevated)] p-2 shadow-[var(--shadow-popover)] z-40">
+                    {/* Models Header */}
+                    <div className="flex items-center justify-between px-2 pt-0.5 pb-1.5">
+                      <span className="text-[12px] text-[var(--text-muted)]">Models</span>
+                      <span className="flex items-center gap-1">
+                        <kbd className={KBD_KEY_CLASS}>⇧</kbd>
+                        <kbd className={KBD_KEY_CLASS}>⌘</kbd>
+                        <kbd className={KBD_KEY_CLASS}>I</kbd>
+                      </span>
                     </div>
-                    <div className="max-h-72 overflow-y-auto p-1.5 space-y-2">
-                      {groupedModels.length === 0 ? (
-                        <div className="p-3 text-center text-[12px] text-[var(--text-muted)]">
-                          No configured models found.{' '}
+
+                    {modelSearch.trim().length > 0 && (
+                      <div className="mx-2 mb-1 flex items-center justify-between rounded-md bg-[var(--bg-subtle)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)]">
+                        <span className="truncate">Filter: {modelSearch}</span>
+                        <button
+                          type="button"
+                          onClick={() => setModelSearch('')}
+                          className="ml-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                          title="Clear filter"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Models List */}
+                    <div className="max-h-[204px] overflow-y-auto space-y-0.5">
+                      {filteredModels.length === 0 ? (
+                        <div className="px-2 py-3 text-center text-[12px] text-[var(--text-muted)]">
+                          No models found.{' '}
                           <button
                             type="button"
                             onClick={() => {
                               setModelPickerOpen(false);
+                              setModelSearch('');
                               setSettingsOpen(true);
                             }}
                             className="text-[var(--accent)] underline cursor-pointer"
@@ -922,102 +1021,89 @@ export const Composer: React.FC = () => {
                           </button>
                         </div>
                       ) : (
-                        groupedModels.map(([providerLabel, models]) => (
-                          <div key={providerLabel}>
-                            <div className="px-2 py-1 text-[10.5px] font-medium uppercase tracking-wider text-[var(--text-muted)]">
-                              {providerLabel}
-                            </div>
-                            {models.map((m) => {
-                              const isSelected =
-                                activeSession?.model?.provider === m.provider &&
-                                activeSession?.model?.id === m.id;
-                              return (
-                                <button
-                                  key={`${m.provider}::${m.id}`}
-                                  type="button"
-                                  onClick={() => {
-                                    setModelPickerOpen(false);
-                                    void changeModel(m.provider, m.id);
-                                  }}
-                                  className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12.5px] cursor-pointer ${
-                                    isSelected
-                                      ? 'bg-[var(--bg-active-row)] text-[var(--text-primary)] font-medium'
-                                      : 'text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
-                                  }`}
-                                >
-                                  <span className="truncate">{m.name}</span>
-                                  <span className="flex items-center gap-1.5 shrink-0 text-[10.5px] text-[var(--text-muted)] font-mono">
-                                    {m.reasoning && <Brain className="w-3 h-3 text-[var(--accent)]" />}
-                                    {Math.round(m.contextWindow / 1000)}k
+                        filteredModels.map((m, idx) => {
+                          const isSelected =
+                            activeSession?.model?.provider === m.provider &&
+                            activeSession?.model?.id === m.id;
+                          const inlineCtx = getInlineContextLabel(m.name, m.contextWindow);
+                          return (
+                            <button
+                              key={`${m.provider}::${m.id}`}
+                              type="button"
+                              title={`${m.providerName} · ${m.id}`}
+                              onClick={() => {
+                                setModelPickerOpen(false);
+                                setModelSearch('');
+                                void changeModel(m.provider, m.id);
+                              }}
+                              className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-[5px] text-left text-[13px] leading-tight hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
+                            >
+                              <span className="flex items-baseline gap-1.5 min-w-0">
+                                <span className="truncate text-[var(--text-primary)]">{m.name}</span>
+                                {inlineCtx && (
+                                  <span className="shrink-0 text-[12px] text-[var(--text-muted)] tabular-nums">
+                                    {inlineCtx}
                                   </span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        ))
+                                )}
+                              </span>
+                              <span className="flex items-center gap-2 shrink-0">
+                                {isSelected && (
+                                  <Check className="w-3.5 h-3.5 text-[var(--text-primary)]" />
+                                )}
+                                {idx < 9 && (
+                                  <span className="w-2.5 text-right tabular-nums text-[12px] text-[var(--text-muted)]">
+                                    {idx + 1}
+                                  </span>
+                                )}
+                              </span>
+                            </button>
+                          );
+                        })
                       )}
                     </div>
-                    <div className="border-t border-[var(--border-hairline)] px-3 py-1.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setModelPickerOpen(false);
-                          setSettingsOpen(true);
-                        }}
-                        className="text-[11.5px] text-[var(--accent)] hover:underline cursor-pointer"
-                      >
-                        + Add custom API / provider…
-                      </button>
-                    </div>
+
+                    {/* Effort Section */}
+                    {activeSession && activeSession.availableThinkingLevels.length > 1 && (
+                      <>
+                        <div className="my-2 mx-2 border-t border-[var(--border-hairline)]" />
+                        <div className="flex items-center justify-between px-2 pb-1.5">
+                          <span className="text-[12px] text-[var(--text-muted)]">Effort</span>
+                          <span className="flex items-center gap-1">
+                            <kbd className={KBD_KEY_CLASS}>⇧</kbd>
+                            <kbd className={KBD_KEY_CLASS}>⌘</kbd>
+                            <kbd className={KBD_KEY_CLASS}>E</kbd>
+                          </span>
+                        </div>
+                        <div className="space-y-0.5">
+                          {activeSession.availableThinkingLevels.map((lvl) => {
+                            const isActiveLevel = lvl === activeSession.thinkingLevel;
+                            return (
+                              <button
+                                key={lvl}
+                                type="button"
+                                onClick={() => {
+                                  setModelPickerOpen(false);
+                                  setModelSearch('');
+                                  void changeThinkingLevel(lvl);
+                                }}
+                                className="flex w-full items-center justify-between rounded-lg px-2 py-[5px] text-left text-[13px] leading-tight hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
+                              >
+                                <span className="text-[var(--text-primary)]">
+                                  {THINKING_LABELS[lvl] ?? lvl}
+                                </span>
+                                {isActiveLevel && (
+                                  <Check className="w-3.5 h-3.5 text-[var(--text-primary)]" />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
                   </div>
                 </>
               )}
             </div>
-
-            {/* Thinking Level Popover */}
-            {activeSession && activeSession.availableThinkingLevels.length > 1 && (
-              <>
-                <span className="text-[var(--text-muted)]">·</span>
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setThinkingMenuOpen((v) => !v)}
-                    className="rounded-md px-1.5 py-0.5 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
-                    title="Thinking level"
-                  >
-                    {THINKING_LABELS[activeSession.thinkingLevel] ?? activeSession.thinkingLevel}
-                  </button>
-
-                  {thinkingMenuOpen && (
-                    <>
-                      <div
-                        className="fixed inset-0 z-30"
-                        onClick={() => setThinkingMenuOpen(false)}
-                      />
-                      <div className="absolute bottom-full right-0 mb-2 w-32 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-elevated)] p-1 shadow-[var(--shadow-popover)] z-40 text-[12px]">
-                        {activeSession.availableThinkingLevels.map((lvl) => (
-                          <button
-                            key={lvl}
-                            type="button"
-                            onClick={() => {
-                              setThinkingMenuOpen(false);
-                              void changeThinkingLevel(lvl);
-                            }}
-                            className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left cursor-pointer ${
-                              lvl === activeSession.thinkingLevel
-                                ? 'bg-[var(--bg-active-row)] text-[var(--text-primary)] font-medium'
-                                : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
-                            }`}
-                          >
-                            <span>{THINKING_LABELS[lvl] ?? lvl}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </>
-            )}
 
             {/* Circular Context Progress Ring */}
             {activeSession && (

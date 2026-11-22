@@ -283,8 +283,8 @@ export const MessageTimeline: React.FC = () => {
                   id={msg.entryId ? `entry-${msg.entryId}` : undefined}
                   className={`group flex justify-end pt-3 pb-1 ${highlightClass}`}
                 >
-                  <div className="max-w-[82%] space-y-1">
-                    <div className="rounded-2xl border border-[var(--border-user-bubble)] bg-[var(--bg-user-bubble)] px-4 py-2.5 text-[14px] leading-relaxed text-[var(--text-user-bubble)] whitespace-pre-wrap break-words">
+                  <div className="flex max-w-[82%] flex-col items-end space-y-1">
+                    <div className="max-w-full rounded-2xl border border-[var(--border-user-bubble)] bg-[var(--bg-user-bubble)] px-4 py-2.5 text-[14px] leading-relaxed text-[var(--text-user-bubble)] whitespace-pre-wrap break-words">
                       {msg.images && msg.images.length > 0 && (
                         <div className="mb-2 flex flex-wrap gap-2">
                           {msg.images.map((img, i) => (

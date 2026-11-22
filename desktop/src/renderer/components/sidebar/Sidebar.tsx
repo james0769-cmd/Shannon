@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Archive,
@@ -21,7 +21,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { SessionSummary, ThemeMode } from '@shared/types';
-import { useAppStore } from '../../stores/app-store.js';
+import { SIDEBAR_WIDTH_DEFAULT, useAppStore } from '../../stores/app-store.js';
 
 function formatRelativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -81,7 +81,7 @@ const SidebarSessionRow: React.FC<SidebarSessionRowProps> = ({
       onClick={() => {
         if (!editing) onSelect();
       }}
-      className={`group relative flex items-center gap-2 rounded-lg py-[6px] pr-2.5 text-[13px] cursor-pointer transition-colors ${
+      className={`group relative flex items-center gap-2 rounded-lg py-[6px] pr-2.5 text-[13px] leading-5 cursor-pointer transition-colors ${
         indented ? 'pl-6' : 'px-2.5'
       } ${
         isActive
@@ -222,6 +222,8 @@ const SidebarSessionRow: React.FC<SidebarSessionRowProps> = ({
 export const Sidebar: React.FC = () => {
   const {
     sidebarCollapsed,
+    sidebarWidth,
+    setSidebarWidth,
     sidebarView,
     projects,
     sessions,
@@ -249,6 +251,41 @@ export const Sidebar: React.FC = () => {
   const [filterMode, setFilterMode] = useState<SessionFilterMode>('all');
   const [sortMode, setSortMode] = useState<SessionSortMode>('recent');
   const [showAllConversations, setShowAllConversations] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+
+  const startResizing = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startWidth = sidebarWidth;
+      setIsResizing(true);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+
+      const onMouseMove = (moveEvent: MouseEvent) => {
+        setSidebarWidth(startWidth + (moveEvent.clientX - startX));
+      };
+
+      const onMouseUp = () => {
+        setIsResizing(false);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+      };
+
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    },
+    [sidebarWidth, setSidebarWidth],
+  );
+
+  useEffect(() => {
+    return () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, []);
 
   const hasAnyAuth = useMemo(() => providers.some((p) => p.hasAuth), [providers]);
 
@@ -328,7 +365,10 @@ export const Sidebar: React.FC = () => {
     Boolean(s.needsInput || needsInputBySession[s.id]);
 
   return (
-    <aside className="flex h-full w-[256px] shrink-0 flex-col border-r border-[var(--border-hairline)] bg-[var(--bg-sidebar)] select-none">
+    <aside
+      style={{ width: sidebarWidth }}
+      className="relative flex h-full shrink-0 flex-col border-r border-[var(--border-hairline)] bg-[var(--bg-sidebar)] select-none"
+    >
       {/* Top Action Section */}
       <div className="px-2.5 pt-2.5 pb-2.5 space-y-1 border-b border-[var(--border-hairline)]">
         <button
@@ -481,7 +521,7 @@ export const Sidebar: React.FC = () => {
 
                     return (
                       <div key={project.id} className="space-y-0.5">
-                        <div className="group flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13px] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]">
+                        <div className="group flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13px] leading-5 font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]">
                           <button
                             type="button"
                             onClick={() =>
@@ -506,7 +546,7 @@ export const Sidebar: React.FC = () => {
                               onClick={() =>
                                 void createNewSession({ cwd: project.path, projectId: project.id })
                               }
-                              className="rounded p-1 text-[var(--text-muted)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)] cursor-pointer"
+                              className="flex h-5 w-5 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)] cursor-pointer"
                               title={`New conversation in ${project.name}`}
                             >
                               <Plus className="w-3.5 h-3.5" />
@@ -514,7 +554,7 @@ export const Sidebar: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => void togglePinProject(project.id)}
-                              className={`rounded p-1 hover:bg-[var(--bg-elevated)] cursor-pointer ${
+                              className={`flex h-5 w-5 items-center justify-center rounded hover:bg-[var(--bg-elevated)] cursor-pointer ${
                                 project.pinned ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]'
                               }`}
                               title={project.pinned ? 'Unpin' : 'Pin'}
@@ -524,7 +564,7 @@ export const Sidebar: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => void removeProject(project.id)}
-                              className="rounded p-1 text-[var(--text-muted)] hover:bg-[var(--bg-elevated)] hover:text-red-500 cursor-pointer"
+                              className="flex h-5 w-5 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--bg-elevated)] hover:text-red-500 cursor-pointer"
                               title="Remove project from sidebar"
                             >
                               <Trash2 className="w-3 h-3" />
@@ -677,6 +717,18 @@ export const Sidebar: React.FC = () => {
           <ThemeIcon className="w-3.5 h-3.5" />
         </button>
       </div>
+      {/* Resize handle */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        onMouseDown={startResizing}
+        onDoubleClick={() => setSidebarWidth(SIDEBAR_WIDTH_DEFAULT)}
+        title="Drag to resize sidebar (double-click to reset)"
+        className={`absolute top-0 right-0 bottom-0 z-20 w-1.5 -mr-[3px] cursor-col-resize transition-colors ${
+          isResizing ? 'bg-[var(--accent)]/50' : 'hover:bg-[var(--accent)]/30'
+        }`}
+      />
     </aside>
   );
 };

@@ -7,6 +7,7 @@ import { InspectorDrawer } from './components/inspector/InspectorDrawer.js';
 import { TopBar } from './components/layout/TopBar.js';
 import { SettingsModal } from './components/settings/SettingsModal.js';
 import { Sidebar } from './components/sidebar/Sidebar.js';
+import { TerminalPanel } from './components/terminal/TerminalPanel.js';
 import { useAppStore } from './stores/app-store.js';
 
 export const App: React.FC = () => {
@@ -18,6 +19,7 @@ export const App: React.FC = () => {
     handleStreamEvent,
     createNewSession,
     toggleSidebar,
+    toggleTerminal,
     setCommandPaletteOpen,
     setSettingsOpen,
     activeSession,
@@ -71,7 +73,13 @@ export const App: React.FC = () => {
       } else if (mod && e.key === ',') {
         e.preventDefault();
         setSettingsOpen(true);
+      } else if (e.ctrlKey && e.key === '`') {
+        e.preventDefault();
+        void toggleTerminal();
       } else if (e.key === 'Escape') {
+        if (document.activeElement?.closest('.xterm')) {
+          return;
+        }
         if (activeSession?.isBashRunning) {
           void abortActiveBash();
         } else if (activeSession?.isStreaming) {
@@ -89,6 +97,7 @@ export const App: React.FC = () => {
     setCommandPaletteOpen,
     setSettingsOpen,
     toggleSidebar,
+    toggleTerminal,
   ]);
 
   return (
@@ -104,6 +113,7 @@ export const App: React.FC = () => {
         </main>
 
         <InspectorDrawer />
+        <TerminalPanel />
       </div>
 
       <SettingsModal />

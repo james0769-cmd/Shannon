@@ -398,3 +398,13 @@ export interface ShannonAppConfig {
   sidebarCollapsed: boolean;
   agentDir: string;
 }
+
+export interface TerminalInfo {
+  id: string;
+  title: string;
+  cwd: string;
+  shell: string;
+  createdAt: string;
+  exited: boolean;
+  exitCode?: number;
+}

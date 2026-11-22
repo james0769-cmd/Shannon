@@ -14,6 +14,12 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@earendil-works/pi-agent-core": "file:./../pi/.artifacts/pi-packages/tarballs/earendil-works-pi-agent-core-1.6.0-479cf91eee7a.tgz",
+    "@earendil-works/pi-ai": "file:./../pi/.artifacts/pi-packages/tarballs/earendil-works-pi-ai-1.6.0-30c124562e2d.tgz",
+    "@earendil-works/pi-coding-agent": "file:./../pi/.artifacts/pi-packages/tarballs/earendil-works-pi-coding-agent-1.6.0-00c14857d8a1.tgz",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/xterm": "^6.0.0",
     "ansi-to-html": "^0.7.2",
     "highlight.js": "^11.11.1",
     "lucide-react": "^0.511.0",
@@ -21,10 +27,7 @@
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "zustand": "^5.0.5",
-    "@earendil-works/pi-coding-agent": "file:./../pi/.artifacts/pi-packages/tarballs/earendil-works-pi-coding-agent-1.6.0-00c14857d8a1.tgz",
-    "@earendil-works/pi-ai": "file:./../pi/.artifacts/pi-packages/tarballs/earendil-works-pi-ai-1.6.0-30c124562e2d.tgz",
-    "@earendil-works/pi-agent-core": "file:./../pi/.artifacts/pi-packages/tarballs/earendil-works-pi-agent-core-1.6.0-479cf91eee7a.tgz"
+    "zustand": "^5.0.5"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.7",

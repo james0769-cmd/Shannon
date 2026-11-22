@@ -10,11 +10,13 @@ import type {
 } from '../../shared/types.js';
 import type { ProjectStore } from '../pi/project-store.js';
 import type { SessionHub } from '../pi/session-hub.js';
+import type { TerminalHub } from '../terminal/terminal-hub.js';
 
 export function registerIpcHandlers(
   getWindow: () => BrowserWindow | null,
   projectStore: ProjectStore,
   sessionHub: SessionHub,
+  terminalHub: TerminalHub,
 ): void {
   // App & Config
   ipcMain.handle('app:getConfig', () => ({
@@ -199,5 +201,23 @@ export function registerIpcHandlers(
       const rt = await sessionHub.getModelRuntime();
       return sessionHub.getProviderStore().testConnection(rt, params.providerId, params.modelId);
     },
+  );
+
+  // Integrated Terminals
+  ipcMain.handle('terminals:list', () => terminalHub.list());
+  ipcMain.handle(
+    'terminals:create',
+    (_e, options?: { cwd?: string; cols?: number; rows?: number; title?: string }) =>
+      terminalHub.create(options),
+  );
+  ipcMain.handle('terminals:kill', (_e, terminalId: string) => terminalHub.kill(terminalId));
+  ipcMain.handle('terminals:getBuffer', (_e, terminalId: string) =>
+    terminalHub.getBuffer(terminalId),
+  );
+  ipcMain.on('terminals:write', (_e, terminalId: string, data: string) =>
+    terminalHub.write(terminalId, data),
+  );
+  ipcMain.on('terminals:resize', (_e, terminalId: string, cols: number, rows: number) =>
+    terminalHub.resize(terminalId, cols, rows),
   );
 }

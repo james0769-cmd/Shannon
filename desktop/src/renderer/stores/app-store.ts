@@ -7,6 +7,7 @@ import type {
   ProviderEntry,
   SessionSummary,
   StreamEvent,
+  TerminalInfo,
   ThemeMode,
   ThinkingLevel,
   UiMessageBlock,
@@ -51,14 +52,61 @@ export interface ToastNotice {
 export type InspectorTab = 'context' | 'tree' | 'resources';
 export type SidebarView = 'code' | 'archive';
 
+export const SIDEBAR_WIDTH_DEFAULT = 256;
+export const SIDEBAR_WIDTH_MIN = 200;
+export const SIDEBAR_WIDTH_MAX = 480;
+const SIDEBAR_WIDTH_STORAGE_KEY = 'shannon.sidebarWidth';
+
+export const TERMINAL_WIDTH_DEFAULT = 460;
+export const TERMINAL_WIDTH_MIN = 320;
+export const TERMINAL_WIDTH_MAX = 820;
+const TERMINAL_WIDTH_STORAGE_KEY = 'shannon.terminalWidth';
+
+function clampSidebarWidth(width: number): number {
+  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(width)));
+}
+
+function loadSidebarWidth(): number {
+  try {
+    const raw = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    if (!raw) return SIDEBAR_WIDTH_DEFAULT;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return SIDEBAR_WIDTH_DEFAULT;
+    return clampSidebarWidth(parsed);
+  } catch {
+    return SIDEBAR_WIDTH_DEFAULT;
+  }
+}
+
+function clampTerminalWidth(width: number): number {
+  return Math.min(TERMINAL_WIDTH_MAX, Math.max(TERMINAL_WIDTH_MIN, Math.round(width)));
+}
+
+function loadTerminalWidth(): number {
+  try {
+    const raw = window.localStorage.getItem(TERMINAL_WIDTH_STORAGE_KEY);
+    if (!raw) return TERMINAL_WIDTH_DEFAULT;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return TERMINAL_WIDTH_DEFAULT;
+    return clampTerminalWidth(parsed);
+  } catch {
+    return TERMINAL_WIDTH_DEFAULT;
+  }
+}
+
 interface AppState {
   initialized: boolean;
   theme: ThemeMode;
   agentDir: string;
   sidebarCollapsed: boolean;
+  sidebarWidth: number;
   sidebarView: SidebarView;
   inspectorOpen: boolean;
   inspectorTab: InspectorTab;
+  terminalOpen: boolean;
+  terminalWidth: number;
+  terminals: TerminalInfo[];
+  activeTerminalId: string | null;
   settingsOpen: boolean;
   commandPaletteOpen: boolean;
   highlightedEntryId: string | null;
@@ -84,11 +132,20 @@ interface AppState {
   init: () => Promise<void>;
   setTheme: (theme: ThemeMode) => Promise<void>;
   toggleSidebar: () => Promise<void>;
+  setSidebarWidth: (width: number) => void;
   setSidebarView: (view: SidebarView) => void;
   navigateHistoryBack: () => Promise<void>;
   navigateHistoryForward: () => Promise<void>;
   openInspector: (tab?: InspectorTab) => void;
   closeInspector: () => void;
+  toggleTerminal: () => Promise<void>;
+  openTerminal: (options?: { cwd?: string; createNew?: boolean }) => Promise<void>;
+  closeTerminal: () => void;
+  setTerminalWidth: (width: number) => void;
+  createTerminal: (cwd?: string) => Promise<TerminalInfo | null>;
+  selectTerminal: (terminalId: string) => void;
+  killTerminal: (terminalId: string) => Promise<void>;
+  markTerminalExited: (terminalId: string, exitCode: number | null) => void;
   setSettingsOpen: (open: boolean) => void;
   setCommandPaletteOpen: (open: boolean) => void;
   highlightEntry: (entryId: string | null) => void;
@@ -149,9 +206,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   theme: 'system',
   agentDir: '',
   sidebarCollapsed: false,
+  sidebarWidth: loadSidebarWidth(),
   sidebarView: 'code',
   inspectorOpen: false,
   inspectorTab: 'context',
+  terminalOpen: false,
+  terminalWidth: loadTerminalWidth(),
+  terminals: [],
+  activeTerminalId: null,
   settingsOpen: false,
   commandPaletteOpen: false,
   highlightedEntryId: null,
@@ -174,13 +236,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   toasts: [],
 
   init: async () => {
-    const [config, projects, sessions, providers, availableModels] = await Promise.all([
-      window.shannon.getAppConfig(),
-      window.shannon.listProjects(),
-      window.shannon.listSessions(),
-      window.shannon.listProviders(),
-      window.shannon.listAvailableModels(),
-    ]);
+    const [config, projects, sessions, providers, availableModels, existingTerminals] =
+      await Promise.all([
+        window.shannon.getAppConfig(),
+        window.shannon.listProjects(),
+        window.shannon.listSessions(),
+        window.shannon.listProviders(),
+        window.shannon.listAvailableModels(),
+        window.shannon.listTerminals(),
+      ]);
 
     set({
       initialized: true,
@@ -191,6 +255,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       sessions,
       providers,
       availableModels,
+      terminals: existingTerminals,
+      activeTerminalId: existingTerminals[0]?.id ?? null,
     });
 
     const initialSession = sessions.find((s) => !s.archived) ?? sessions[0];
@@ -218,6 +284,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     await window.shannon.setSidebarCollapsed(next);
   },
 
+  setSidebarWidth: (width) => {
+    const next = clampSidebarWidth(width);
+    set({ sidebarWidth: next });
+    try {
+      window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(next));
+    } catch {
+      // Ignore storage errors
+    }
+  },
+
   setSidebarView: (view) => set({ sidebarView: view }),
 
   navigateHistoryBack: async () => {
@@ -243,11 +319,95 @@ export const useAppStore = create<AppState>((set, get) => ({
   openInspector: (tab) => {
     set((s) => ({
       inspectorOpen: true,
+      terminalOpen: false,
       inspectorTab: tab ?? s.inspectorTab,
     }));
   },
 
   closeInspector: () => set({ inspectorOpen: false }),
+
+  toggleTerminal: async () => {
+    const { terminalOpen, terminals, activeSession, createTerminal } = get();
+    if (terminalOpen) {
+      set({ terminalOpen: false });
+      return;
+    }
+    set({ terminalOpen: true, inspectorOpen: false });
+    if (terminals.length === 0) {
+      await createTerminal(activeSession?.cwd);
+    }
+  },
+
+  openTerminal: async (options) => {
+    const { terminals, activeSession, createTerminal } = get();
+    set({ terminalOpen: true, inspectorOpen: false });
+    if (options?.createNew || terminals.length === 0) {
+      await createTerminal(options?.cwd ?? activeSession?.cwd);
+    }
+  },
+
+  closeTerminal: () => set({ terminalOpen: false }),
+
+  setTerminalWidth: (width) => {
+    const next = clampTerminalWidth(width);
+    set({ terminalWidth: next });
+    try {
+      window.localStorage.setItem(TERMINAL_WIDTH_STORAGE_KEY, String(next));
+    } catch {
+      // Ignore storage errors
+    }
+  },
+
+  createTerminal: async (cwd) => {
+    try {
+      const targetCwd = cwd ?? get().activeSession?.cwd;
+      const created = await window.shannon.createTerminal({ cwd: targetCwd });
+      set((s) => ({
+        terminals: [...s.terminals, created],
+        activeTerminalId: created.id,
+        terminalOpen: true,
+        inspectorOpen: false,
+      }));
+      return created;
+    } catch (err) {
+      get().pushToast(
+        'error',
+        err instanceof Error ? err.message : 'Failed to create terminal.',
+      );
+      return null;
+    }
+  },
+
+  selectTerminal: (terminalId) => set({ activeTerminalId: terminalId }),
+
+  killTerminal: async (terminalId) => {
+    await window.shannon.killTerminal(terminalId);
+    set((s) => {
+      const idx = s.terminals.findIndex((t) => t.id === terminalId);
+      const nextTerminals = s.terminals.filter((t) => t.id !== terminalId);
+      let nextActiveId = s.activeTerminalId;
+      if (s.activeTerminalId === terminalId) {
+        const fallback = nextTerminals[idx] ?? nextTerminals[idx - 1] ?? null;
+        nextActiveId = fallback?.id ?? null;
+      }
+      return {
+        terminals: nextTerminals,
+        activeTerminalId: nextActiveId,
+        terminalOpen: nextTerminals.length === 0 ? false : s.terminalOpen,
+      };
+    });
+  },
+
+  markTerminalExited: (terminalId, exitCode) => {
+    set((s) => ({
+      terminals: s.terminals.map((t) =>
+        t.id === terminalId
+          ? { ...t, exited: true, exitCode: exitCode ?? undefined }
+          : t,
+      ),
+    }));
+  },
+
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
   highlightEntry: (entryId) => set({ highlightedEntryId: entryId }),

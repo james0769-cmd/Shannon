@@ -28,6 +28,15 @@
   --bash-local-bg: rgba(71, 85, 105, 0.09);
   --code-bg: #F4F1EA;
   --code-border: #E5E1D6;
+  --ctx-tone-1: #547CE8;
+  --ctx-tone-2: #7496EE;
+  --ctx-tone-3: #92AEF3;
+  --ctx-tone-4: #B0C6F7;
+  --ctx-tone-5: #CBD9FA;
+  --ctx-tone-6: #DFE8FC;
+  --ctx-free: #ECEAE4;
+  --ctx-bar-track: #E8E5DD;
+  --ctx-usage-bar: #3B7AF5;
   color-scheme: light;
 }
 
@@ -58,6 +67,15 @@
   --bash-local-bg: rgba(148, 163, 184, 0.12);
   --code-bg: #141416;
   --code-border: #2C2C30;
+  --ctx-tone-1: #5B86F7;
+  --ctx-tone-2: #4A70D6;
+  --ctx-tone-3: #3C5BB3;
+  --ctx-tone-4: #31498F;
+  --ctx-tone-5: #273A70;
+  --ctx-tone-6: #213059;
+  --ctx-free: #2D2D32;
+  --ctx-bar-track: #2A2A2F;
+  --ctx-usage-bar: #4B83F6;
   color-scheme: dark;
 }
 
@@ -230,3 +248,11 @@ body,
 [data-theme="dark"] .hljs-literal { color: #7dd3fc; }
 [data-theme="dark"] .hljs-title,
 [data-theme="dark"] .hljs-function { color: #fdba74; }
+
+/* Integrated xterm viewport polish */
+.xterm {
+  height: 100%;
+}
+.xterm .xterm-viewport {
+  scrollbar-width: thin;
+}
