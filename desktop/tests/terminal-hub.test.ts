@@ -51,6 +51,7 @@ describe('TerminalHub', () => {
     expect(info.id).toBeTruthy();
     expect(info.title).toBe('test-term');
     expect(info.exited).toBe(false);
+    expect(typeof info.ptyBacked).toBe('boolean');
     expect(hub.list()).toHaveLength(1);
 
     hub.resize(info.id, 100, 30);

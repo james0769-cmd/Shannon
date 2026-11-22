@@ -36,6 +36,8 @@ const COMPONENT_SPECS: Array<{
   { key: 'tools_extension', label: 'Extension tools', alwaysShow: false },
 ];
 
+const TOOL_CATEGORY_KEYS = new Set<string>(['tools_builtin', 'tools_mcp', 'tools_extension']);
+
 interface SwatchRowModel {
   id: string;
   label: string;
@@ -268,7 +270,9 @@ export const ContextPanel: React.FC = () => {
     </div>
   );
 
-  const allSwatchRows = freeRow ? [...usedRows, freeRow] : usedRows;
+  // Tool categories stay in the bar, but are listed once under the Tools disclosure.
+  const listRows = usedRows.filter((r) => !TOOL_CATEGORY_KEYS.has(r.id));
+  const allSwatchRows = freeRow ? [...listRows, freeRow] : listRows;
   const barSegments = usedRows.filter((r) => r.tokens > 0);
   const toolsDisclosureOpen = Boolean(expandedKeys['disclosure:tools']);
   const topDisclosureOpen = Boolean(expandedKeys['disclosure:top']);

@@ -73,7 +73,7 @@ export const App: React.FC = () => {
       } else if (mod && e.key === ',') {
         e.preventDefault();
         setSettingsOpen(true);
-      } else if (e.ctrlKey && e.key === '`') {
+      } else if ((e.ctrlKey || e.metaKey) && e.code === 'Backquote') {
         e.preventDefault();
         void toggleTerminal();
       } else if (e.key === 'Escape') {

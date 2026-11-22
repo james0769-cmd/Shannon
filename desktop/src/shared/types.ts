@@ -407,4 +407,6 @@ export interface TerminalInfo {
   createdAt: string;
   exited: boolean;
   exitCode?: number;
+  /** False when python3 is unavailable and the shell runs without a real PTY. */
+  ptyBacked: boolean;
 }

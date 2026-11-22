@@ -317,7 +317,7 @@ export const TopBar: React.FC = () => {
                 ? 'bg-[var(--bg-active-row)] text-[var(--text-primary)]'
                 : 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
             }`}
-            title="Toggle Terminal (⌃`)"
+            title="Toggle Terminal (⌃` / ⌘`)"
           >
             <Terminal className="w-4 h-4" />
           </button>

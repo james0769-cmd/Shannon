@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Archive,
@@ -252,6 +252,7 @@ export const Sidebar: React.FC = () => {
   const [sortMode, setSortMode] = useState<SessionSortMode>('recent');
   const [showAllConversations, setShowAllConversations] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
+  const dragCleanupRef = useRef<(() => void) | null>(null);
 
   const startResizing = useCallback(
     (e: React.MouseEvent) => {
@@ -266,22 +267,25 @@ export const Sidebar: React.FC = () => {
         setSidebarWidth(startWidth + (moveEvent.clientX - startX));
       };
 
-      const onMouseUp = () => {
+      const cleanup = () => {
         setIsResizing(false);
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
         window.removeEventListener('mousemove', onMouseMove);
-        window.removeEventListener('mouseup', onMouseUp);
+        window.removeEventListener('mouseup', cleanup);
+        dragCleanupRef.current = null;
       };
 
+      dragCleanupRef.current = cleanup;
       window.addEventListener('mousemove', onMouseMove);
-      window.addEventListener('mouseup', onMouseUp);
+      window.addEventListener('mouseup', cleanup);
     },
     [sidebarWidth, setSidebarWidth],
   );
 
   useEffect(() => {
     return () => {
+      dragCleanupRef.current?.();
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };

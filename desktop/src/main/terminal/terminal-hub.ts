@@ -258,6 +258,7 @@ export class TerminalHub {
       shell,
       createdAt: new Date().toISOString(),
       exited: false,
+      ptyBacked: usePtyBridge,
     };
 
     const entry: TerminalEntry = {

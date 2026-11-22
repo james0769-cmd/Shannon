@@ -265,6 +265,7 @@ export const TerminalPanel: React.FC = () => {
   } = useAppStore();
 
   const [isResizing, setIsResizing] = useState(false);
+  const dragCleanupRef = useRef<(() => void) | null>(null);
   const [clearSignal, setClearSignal] = useState(0);
   const [focusSignal, setFocusSignal] = useState(0);
 
@@ -293,19 +294,27 @@ export const TerminalPanel: React.FC = () => {
         setTerminalWidth(startWidth - (moveEvent.clientX - startX));
       };
 
-      const onMouseUp = () => {
+      const cleanup = () => {
         setIsResizing(false);
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
         window.removeEventListener('mousemove', onMouseMove);
-        window.removeEventListener('mouseup', onMouseUp);
+        window.removeEventListener('mouseup', cleanup);
+        dragCleanupRef.current = null;
       };
 
+      dragCleanupRef.current = cleanup;
       window.addEventListener('mousemove', onMouseMove);
-      window.addEventListener('mouseup', onMouseUp);
+      window.addEventListener('mouseup', cleanup);
     },
     [terminalWidth, setTerminalWidth],
   );
+
+  useEffect(() => {
+    return () => {
+      dragCleanupRef.current?.();
+    };
+  }, []);
 
   if (terminals.length === 0 && !terminalOpen) {
     return null;
@@ -393,6 +402,14 @@ export const TerminalPanel: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-0.5 shrink-0 text-[var(--text-secondary)]">
+          {activeTerminal && !activeTerminal.ptyBacked && (
+            <span
+              className="mr-1 rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-[10.5px] text-[var(--text-muted)]"
+              title="python3 was not found, so this shell runs without a real TTY (no prompts, colors or resize)."
+            >
+              no TTY
+            </span>
+          )}
           <button
             type="button"
             onClick={() => void createTerminal(activeSession?.cwd)}
@@ -414,7 +431,7 @@ export const TerminalPanel: React.FC = () => {
             type="button"
             onClick={closeTerminal}
             className="rounded-md p-1 text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
-            title="Hide terminal panel (⌃`)"
+            title="Hide terminal panel (⌃` / ⌘`)"
           >
             <X className="w-4 h-4" />
           </button>
