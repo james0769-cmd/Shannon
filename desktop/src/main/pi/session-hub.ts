@@ -29,7 +29,7 @@ import type {
   WorkspaceFileMatch,
 } from '../../shared/types.js';
 import { buildContextBreakdown } from './context-inspector.js';
-import { createDesktopExtensionUIContext } from './desktop-ui-bridge.js';
+import { createDesktopExtensionUIContext, type ShowExtensionDialog } from './desktop-ui-bridge.js';
 import type { ProjectStore } from './project-store.js';
 import { ProviderStore } from './provider-store.js';
 
@@ -288,6 +288,7 @@ export class SessionHub {
     projectStore: ProjectStore,
     emitEvent: (event: StreamEvent) => void,
     agentDir: string = getAgentDir(),
+    private readonly showExtensionDialog?: ShowExtensionDialog,
   ) {
     this.agentDir = agentDir;
     this.projectStore = projectStore;
@@ -736,16 +737,14 @@ export class SessionHub {
 
     const sessionId = session.sessionId;
     await session.bindExtensions({
-      uiContext: createDesktopExtensionUIContext({
-        notify: (level, message) => {
-          this.emitEvent({
-            type: 'ui_notification',
-            sessionId,
-            level,
-            message,
-          });
+      uiContext: createDesktopExtensionUIContext(
+        {
+          notify: (level, message) => {
+            this.emitEvent({ type: 'ui_notification', sessionId, level, message });
+          },
         },
-      }),
+        this.showExtensionDialog,
+      ),
     });
 
     const sessionFile = session.sessionFile;
