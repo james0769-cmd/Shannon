@@ -1,6 +1,6 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, nativeTheme } from 'electron';
+import { app, BrowserWindow, dialog, nativeTheme } from 'electron';
 import type { StreamEvent } from '../shared/types.js';
 import { registerIpcHandlers } from './ipc/register.js';
 import { ProjectStore } from './pi/project-store.js';
@@ -18,7 +18,10 @@ function broadcastEvent(event: StreamEvent): void {
   }
 }
 
-const sessionHub = new SessionHub(projectStore, broadcastEvent);
+const sessionHub = new SessionHub(projectStore, broadcastEvent, undefined, async (options) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return undefined;
+  return (await dialog.showMessageBox(mainWindow, options)).response;
+});
 
 const terminalHub = new TerminalHub(
   (terminalId, data) => {

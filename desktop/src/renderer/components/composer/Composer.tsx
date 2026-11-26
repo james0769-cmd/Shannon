@@ -382,6 +382,10 @@ export const Composer: React.FC = () => {
 
     if (bashMode.active) {
       if (!bashMode.command.trim()) return;
+      if (activeSession?.isBashRunning) {
+        pushToast('warning', 'A Bash command is already running in this chat.');
+        return;
+      }
       const cmd = bashMode.command;
       const exclude = bashMode.excludeFromContext;
       setText('');

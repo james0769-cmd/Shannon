@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import type { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import type {
@@ -20,9 +21,47 @@ interface RawModelsJson {
 
 type RawAuthJson = Record<string, Record<string, unknown>>;
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isObjectMap(value: unknown): value is Record<string, Record<string, unknown>> {
+  return isObject(value) && Object.values(value).every(isObject);
+}
+
+function readProviderConfig<T>(
+  path: string,
+  isValid: (value: unknown) => value is T,
+  forWrite: boolean,
+): T | undefined {
+  try {
+    const value: unknown = JSON.parse(readFileSync(path, 'utf-8'));
+    if (isValid(value)) return value;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+  }
+  if (forWrite) throw new Error(`Cannot edit providers: ${basename(path)} is unreadable or invalid.`);
+  return undefined;
+}
+
+function writeProviderConfig(path: string, data: RawModelsJson | RawAuthJson): void {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const tmp = `${path}.tmp.${randomUUID()}`;
+  try {
+    writeFileSync(tmp, JSON.stringify(data, null, 2), { encoding: 'utf-8', flag: 'wx', mode: 0o600 });
+    renameSync(tmp, path);
+  } finally {
+    rmSync(tmp, { force: true });
+  }
+}
+
+function isKeyReference(value: string): boolean {
+  return value.startsWith('$') || value.startsWith('!');
+}
+
 function maskSecret(value: string | undefined): string | undefined {
   if (!value) return undefined;
-  if (value.startsWith('$') || value.startsWith('!')) return value;
+  if (isKeyReference(value)) return value;
   if (value.length <= 8) return '••••••••';
   return `${value.slice(0, 4)}••••${value.slice(-4)}`;
 }
@@ -36,54 +75,17 @@ export class ProviderStore {
     this.authPath = join(agentDir, 'auth.json');
   }
 
-  private readModelsJson(): RawModelsJson {
-    try {
-      if (existsSync(this.modelsPath)) {
-        const raw = readFileSync(this.modelsPath, 'utf-8');
-        const parsed = JSON.parse(raw) as RawModelsJson;
-        if (parsed && typeof parsed === 'object') {
-          return parsed;
-        }
-      }
-    } catch {
-      // Ignore parse error, treat as empty object
-    }
-    return { providers: {} };
+  private readModelsJson(forWrite = false): RawModelsJson {
+    return readProviderConfig(
+      this.modelsPath,
+      (value): value is RawModelsJson =>
+        isObject(value) && (value.providers === undefined || isObjectMap(value.providers)),
+      forWrite,
+    ) ?? {};
   }
 
-  private writeModelsJson(data: RawModelsJson): void {
-    const dir = dirname(this.modelsPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true, mode: 0o700 });
-    }
-    const tmp = `${this.modelsPath}.tmp.${process.pid}`;
-    writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf-8');
-    renameSync(tmp, this.modelsPath);
-  }
-
-  private readAuthJson(): RawAuthJson {
-    try {
-      if (existsSync(this.authPath)) {
-        const raw = readFileSync(this.authPath, 'utf-8');
-        const parsed = JSON.parse(raw) as RawAuthJson;
-        if (parsed && typeof parsed === 'object') {
-          return parsed;
-        }
-      }
-    } catch {
-      // Ignore parse error
-    }
-    return {};
-  }
-
-  private writeAuthJson(data: RawAuthJson): void {
-    const dir = dirname(this.authPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true, mode: 0o700 });
-    }
-    const tmp = `${this.authPath}.tmp.${process.pid}`;
-    writeFileSync(tmp, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600 });
-    renameSync(tmp, this.authPath);
+  private readAuthJson(forWrite = false): RawAuthJson {
+    return readProviderConfig(this.authPath, isObjectMap, forWrite) ?? {};
   }
 
   listProviders(modelRuntime: ModelRuntime): ProviderEntry[] {
@@ -232,12 +234,11 @@ export class ProviderStore {
       throw new Error('Provider ID is required');
     }
 
-    const modelsJson = this.readModelsJson();
-    if (!modelsJson.providers) {
-      modelsJson.providers = {};
-    }
+    const modelsJson = this.readModelsJson(true);
+    const authJson = this.readAuthJson(true);
+    const providers = modelsJson.providers ??= {};
 
-    const existingProvider = (modelsJson.providers[id] ?? {}) as Record<string, unknown>;
+    const existingProvider = Object.hasOwn(providers, id) ? providers[id] : undefined;
     const updatedProvider: Record<string, unknown> = { ...existingProvider };
 
     if (input.name?.trim()) updatedProvider.name = input.name.trim();
@@ -271,45 +272,43 @@ export class ProviderStore {
       }
     }
 
-    // Handle API key: $ENV / !cmd stays in models.json or auth.json; literal key goes to auth.json (0o600)
-    const authJson = this.readAuthJson();
+    const existingAuth = Object.hasOwn(authJson, id) ? authJson[id] : undefined;
+    const key = input.apiKey?.trim();
+    let removeAuth = false;
     if (input.clearApiKey) {
-      delete authJson[id];
+      removeAuth = Boolean(existingAuth);
       delete updatedProvider.apiKey;
-      this.writeAuthJson(authJson);
-    } else if (input.apiKey !== undefined && input.apiKey.trim() !== '') {
-      const keyVal = input.apiKey.trim();
-      if (keyVal.startsWith('$') || keyVal.startsWith('!')) {
-        updatedProvider.apiKey = keyVal;
-        if (authJson[id]?.type === 'api_key') {
-          delete authJson[id];
-          this.writeAuthJson(authJson);
-        }
-      } else {
-        authJson[id] = {
-          ...(authJson[id] ?? {}),
-          type: 'api_key',
-          key: keyVal,
-        };
-        this.writeAuthJson(authJson);
-        // Also ensure custom providers without authHeader or apiKey work seamlessly
-        if (updatedProvider.baseUrl && !updatedProvider.apiKey) {
-          updatedProvider.apiKey = keyVal;
-        }
-      }
+    } else if (key && isKeyReference(key)) {
+      updatedProvider.apiKey = key;
+      removeAuth = existingAuth?.type === 'api_key';
+    } else if (key) {
+      const credential = existingAuth?.type === 'api_key' ? existingAuth : {};
+      writeProviderConfig(this.authPath, {
+        ...authJson,
+        [id]: { ...credential, type: 'api_key', key },
+      });
+      delete updatedProvider.apiKey;
+    } else if (
+      typeof updatedProvider.apiKey === 'string' &&
+      !isKeyReference(updatedProvider.apiKey) &&
+      existingAuth?.type === 'api_key' &&
+      existingAuth.key === updatedProvider.apiKey
+    ) {
+      // Remove a legacy duplicate when saving this provider. Distinct external credentials
+      // are preserved unless the user explicitly changes or clears the key.
+      delete updatedProvider.apiKey;
     }
 
-    const hasCustomModelFields =
-      Boolean(updatedProvider.baseUrl) ||
-      Boolean(updatedProvider.api) ||
-      Boolean(updatedProvider.headers) ||
-      Boolean(updatedProvider.models) ||
-      Boolean(updatedProvider.apiKey) ||
-      Boolean(updatedProvider.name);
-
-    if (hasCustomModelFields) {
-      modelsJson.providers[id] = updatedProvider;
-      this.writeModelsJson(modelsJson);
+    if (Object.keys(updatedProvider).length) {
+      modelsJson.providers = { ...providers, [id]: updatedProvider };
+      writeProviderConfig(this.modelsPath, modelsJson);
+    } else if (existingProvider) {
+      delete providers[id];
+      writeProviderConfig(this.modelsPath, modelsJson);
+    }
+    if (removeAuth) {
+      delete authJson[id];
+      writeProviderConfig(this.authPath, authJson);
     }
 
     if (modelRuntime) {
@@ -318,16 +317,16 @@ export class ProviderStore {
   }
 
   async deleteProvider(providerId: string, modelRuntime?: ModelRuntime): Promise<void> {
-    const modelsJson = this.readModelsJson();
-    if (modelsJson.providers && providerId in modelsJson.providers) {
+    const modelsJson = this.readModelsJson(true);
+    const authJson = this.readAuthJson(true);
+    if (modelsJson.providers && Object.hasOwn(modelsJson.providers, providerId)) {
       delete modelsJson.providers[providerId];
-      this.writeModelsJson(modelsJson);
+      writeProviderConfig(this.modelsPath, modelsJson);
     }
 
-    const authJson = this.readAuthJson();
-    if (providerId in authJson) {
+    if (Object.hasOwn(authJson, providerId)) {
       delete authJson[providerId];
-      this.writeAuthJson(authJson);
+      writeProviderConfig(this.authPath, authJson);
     }
 
     if (modelRuntime) {
